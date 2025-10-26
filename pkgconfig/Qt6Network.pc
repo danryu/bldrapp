@@ -1,0 +1,16 @@
+prefix=@QT_PREFIX@
+exec_prefix=@QT_PREFIX@
+libdir=@QT_PREFIX@/lib
+includedir=@QT_PREFIX@/include
+bindir=@QT_PREFIX@/libexec
+libexecdir=@QT_PREFIX@/libexec
+host_bins=@QT_PREFIX@/bin
+qt_host_bins=@QT_PREFIX@/bin
+
+Name: Qt6Network
+Description: Qt6 Network module
+Version: @QT_VERSION@
+Requires.private: Qt6Core
+Libs: -L@QT_PREFIX@/lib -lQt6Network
+Cflags: -I@QT_PREFIX@/include -I@QT_PREFIX@/include/QtNetwork -I@QT_PREFIX@/include/QtNetwork/@QT_VERSION@ -I@QT_PREFIX@/include/QtNetwork/@QT_VERSION@/QtNetwork
+

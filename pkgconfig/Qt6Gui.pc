@@ -1,0 +1,18 @@
+prefix=@QT_PREFIX@
+exec_prefix=@QT_PREFIX@
+libdir=@QT_PREFIX@/lib
+includedir=@QT_PREFIX@/include
+bindir=@QT_PREFIX@/libexec
+libexecdir=@QT_PREFIX@/libexec
+host_bins=@QT_PREFIX@/bin
+qt_host_bins=@QT_PREFIX@/bin
+
+Name: Qt6Gui
+Description: Qt6 Gui module
+Version: @QT_VERSION@
+Requires.private: Qt6Core
+Libs: -L@QT_PREFIX@/lib -lQt6Gui
+Libs.private: -framework Metal -framework AppKit -framework QuartzCore
+Cflags: -I@QT_PREFIX@/include -I@QT_PREFIX@/include/QtGui -I@QT_PREFIX@/include/QtGui/@QT_VERSION@ -I@QT_PREFIX@/include/QtGui/@QT_VERSION@/QtGui
+
+

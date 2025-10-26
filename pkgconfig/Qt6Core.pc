@@ -1,0 +1,17 @@
+prefix=@QT_PREFIX@
+exec_prefix=@QT_PREFIX@
+libdir=@QT_PREFIX@/lib
+includedir=@QT_PREFIX@/include
+bindir=@QT_PREFIX@/libexec
+libexecdir=@QT_PREFIX@/libexec
+host_bins=@QT_PREFIX@/bin
+qt_host_bins=@QT_PREFIX@/bin
+
+Name: Qt6Core
+Description: Qt6 Core module
+Version: @QT_VERSION@
+Libs: -L@QT_PREFIX@/lib -lQt6Core
+Libs.private: -framework IOKit
+Cflags: -I@QT_PREFIX@/include -I@QT_PREFIX@/include/QtCore -I@QT_PREFIX@/include/QtCore/@QT_VERSION@ -I@QT_PREFIX@/include/QtCore/@QT_VERSION@/QtCore
+
+
