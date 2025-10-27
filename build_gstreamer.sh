@@ -131,11 +131,6 @@ for pc in Qt6Core.pc Qt6Gui.pc Qt6Qml.pc Qt6Quick.pc; do
 		echo "WARNING: Missing ${BUILD_DIR}/pkgconfig/${pc}; skipping"
 	fi
 done
-# Also install Qt6Network.pc for QML's network dependency
-if [ -f "${BUILD_DIR}/pkgconfig/Qt6Network.pc" ]; then
-    sed -e "s#@QT_PREFIX@#${QT_PATH}#g" -e "s#@QT_VERSION@#${QT_VER_PKG}#g" \
-        "${BUILD_DIR}/pkgconfig/Qt6Network.pc" > "${QT_PCDIR}/Qt6Network.pc"
-fi
 export PKG_CONFIG_PATH="${QT_PCDIR}:/opt/homebrew/opt/gettext/lib/pkgconfig:${PKG_CONFIG_PATH}"
 echo "Installed pkg-config files to: ${QT_PCDIR}"
 

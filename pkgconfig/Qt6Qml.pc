@@ -10,7 +10,7 @@ qt_host_bins=@QT_PREFIX@/bin
 Name: Qt6Qml
 Description: Qt6 Qml module
 Version: @QT_VERSION@
-Requires.private: Qt6Core Qt6Network
+Requires.private: Qt6Core
 Libs: -L@QT_PREFIX@/lib -lQt6Qml
 Cflags: -I@QT_PREFIX@/include -I@QT_PREFIX@/include/QtQml -I@QT_PREFIX@/include/QtQml/@QT_VERSION@ -I@QT_PREFIX@/include/QtQml/@QT_VERSION@/QtQml
 

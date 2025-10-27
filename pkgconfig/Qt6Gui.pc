@@ -12,7 +12,6 @@ Description: Qt6 Gui module
 Version: @QT_VERSION@
 Requires.private: Qt6Core
 Libs: -L@QT_PREFIX@/lib -lQt6Gui
-Libs.private: -framework Metal -framework AppKit -framework QuartzCore
 Cflags: -I@QT_PREFIX@/include -I@QT_PREFIX@/include/QtGui -I@QT_PREFIX@/include/QtGui/@QT_VERSION@ -I@QT_PREFIX@/include/QtGui/@QT_VERSION@/QtGui
 
 
