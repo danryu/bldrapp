@@ -213,6 +213,7 @@ meson setup builddir \
 	-Dtests=disabled \
 	-Ddoc=disabled \
     -Dnls=disabled \
+    -Dtools=disabled \
 	-Dintrospection=disabled
 
 echo ""
