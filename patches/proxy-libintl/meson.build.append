@@ -1,0 +1,4 @@
+# Make this subproject satisfy dependency('intl') in superprojects
+meson.override_dependency('intl', intl_dep)
+
+

@@ -37,6 +37,18 @@ gstreamer-build/
 └── README.md                         # This file
 ```
 
+## proxy-libintl fallback for GLib (CI reproducibility)
+
+GLib requires gettext (`libintl`). To avoid requiring a system gettext in local and CI builds, this repo vendors a Meson wrap and a tiny override snippet so Meson resolves `dependency('intl')` to the bundled `proxy-libintl` subproject.
+
+Tracked items:
+
+- `wraps/proxy-libintl.wrap`: Local wrap that declares it provides `intl`.
+- `patches/proxy-libintl/meson.build.append`: Appended to the subproject `meson.build` to call `meson.override_dependency('intl', intl_dep)`.
+- `build_gstreamer.sh`: Copies the wrap into `gstreamer/subprojects/`, pre-downloads the subproject, and appends the override if missing.
+
+This makes builds self-contained and prevents Meson from failing with “Dependency "intl" not found”.
+
 ## Using the Built GStreamer
 
 ### Environment Setup

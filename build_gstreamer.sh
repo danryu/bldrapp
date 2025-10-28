@@ -112,8 +112,7 @@ for p in "${qt_extra_includes[@]}"; do
 	abs_p=$(cd "${p}" 2>/dev/null && pwd || echo "${p}")
 	CPP_EXTRA+=" -I${abs_p}"
 done
-# Ensure gettext headers are on the include path for intl detection
-CPP_EXTRA+=" -I/opt/homebrew/opt/gettext/include"
+# Note: Removed hardcoded Homebrew paths - using system or built-in libraries only
 
 echo "Meson native file created: meson-native.ini"
 
@@ -131,7 +130,7 @@ for pc in Qt6Core.pc Qt6Gui.pc Qt6Qml.pc Qt6Quick.pc; do
 		echo "WARNING: Missing ${BUILD_DIR}/pkgconfig/${pc}; skipping"
 	fi
 done
-export PKG_CONFIG_PATH="${QT_PCDIR}:/opt/homebrew/opt/gettext/lib/pkgconfig:${PKG_CONFIG_PATH}"
+export PKG_CONFIG_PATH="${QT_PCDIR}:${PKG_CONFIG_PATH}"
 echo "Installed pkg-config files to: ${QT_PCDIR}"
 
 # Step 4: Configure Meson build with Qt6 support
@@ -145,20 +144,25 @@ if [ -d "builddir" ]; then
 	rm -rf builddir
 fi
 
+# Ensure our local wrap is installed for proxy-libintl fallback
+if [ -f "${BUILD_DIR}/wraps/proxy-libintl.wrap" ]; then
+	mkdir -p "subprojects"
+	cp -f "${BUILD_DIR}/wraps/proxy-libintl.wrap" "subprojects/proxy-libintl.wrap"
+fi
+
 # Set up environment for Qt6 (STATIC)
 export PKG_CONFIG_PATH="${QT_PATH}/lib/pkgconfig"
 export PKG_CONFIG_LIBDIR="${QT_PATH}/lib/pkgconfig"
-export PATH="${QT_PATH}/bin:${QT_PATH}/libexec:/opt/homebrew/opt/gettext/bin:/opt/homebrew/opt/bison/bin:/opt/homebrew/opt/flex/bin:${PATH}"
+export PATH="${QT_PATH}/bin:${QT_PATH}/libexec:${PATH}"
 export CMAKE_PREFIX_PATH="${QT_PATH}"
 export Qt6_DIR="${QT_PATH}/lib/cmake/Qt6"
 export QT_PLUGIN_PATH="${QT_PATH}/plugins:${QT_PLUGIN_PATH}"
 export QML2_IMPORT_PATH="${QT_PATH}/qml:${QML2_IMPORT_PATH}"
-export LDFLAGS="-L/opt/homebrew/opt/gettext/lib ${LDFLAGS}"
-export CPPFLAGS="-I/opt/homebrew/opt/gettext/include ${CPPFLAGS}"
+# Removed Homebrew-specific LDFLAGS and CPPFLAGS
 export QT_HOST_BINS="${QT_PATH}/bin"
 export QMAKE="${QT_PATH}/bin/qmake6"
 export QSB="${QT_PATH}/bin/qsb"
-export PKG_CONFIG_PATH="/opt/homebrew/opt/gettext/lib/pkgconfig:${PKG_CONFIG_PATH}"
+# PKG_CONFIG_PATH already set above without Homebrew paths
 
 # Ensure lrelease tool is available (Qt Linguist Tools may be missing in static builds)
 if [ ! -x "${QT_PATH}/libexec/lrelease" ] && [ ! -x "${QT_PATH}/bin/lrelease" ]; then
@@ -181,10 +185,22 @@ EOF
     ln -sf "${QT_PATH}/libexec/lrelease" "${QT_PATH}/libexec/lrelease-qt6" 2>/dev/null || true
 fi
 
-# Ensure Qt private headers are found early by the compiler
-if [ -n "${QT_VER_DIR}" ]; then
-	export CFLAGS="-I${QT_PATH}/include/QtGui/${QT_VER_DIR}/QtGui -I${QT_PATH}/include/QtCore/${QT_VER_DIR} ${CFLAGS}"
-	export CXXFLAGS="-I${QT_PATH}/include/QtGui/${QT_VER_DIR}/QtGui -I${QT_PATH}/include/QtCore/${QT_VER_DIR} ${CXXFLAGS}"
+# # Ensure Qt private headers are found early by the compiler
+# if [ -n "${QT_VER_DIR}" ]; then
+# 	export CFLAGS="-I${QT_PATH}/include/QtGui/${QT_VER_DIR}/QtGui -I${QT_PATH}/include/QtCore/${QT_VER_DIR} ${CFLAGS}"
+# 	export CXXFLAGS="-I${QT_PATH}/include/QtGui/${QT_VER_DIR}/QtGui -I${QT_PATH}/include/QtCore/${QT_VER_DIR} ${CXXFLAGS}"
+# fi
+
+meson subprojects download proxy-libintl || true
+
+# Ensure proxy-libintl overrides dependency('intl') even if upstream changes
+PROXY_INTL_DIR="subprojects/proxy-libintl"
+if [ -d "${PROXY_INTL_DIR}" ]; then
+	if ! grep -q "override_dependency('intl'" "${PROXY_INTL_DIR}/meson.build" 2>/dev/null; then
+		if [ -f "${BUILD_DIR}/patches/proxy-libintl/meson.build.append" ]; then
+			printf "\n%s\n" "$(cat "${BUILD_DIR}/patches/proxy-libintl/meson.build.append")" >> "${PROXY_INTL_DIR}/meson.build"
+		fi
+	fi
 fi
 
 # Configure with Meson (STATIC build)
@@ -196,20 +212,52 @@ meson setup builddir \
 	-Dcmake_prefix_path="${QT_PATH}" \
 	-Dc_args="${CPP_EXTRA}" \
 	-Dcpp_args="${CPP_EXTRA}" \
-	-Ddefault_library=static \
-	-Dgst-full-target-type=static_library \
-	-Dgpl=enabled \
-	-Dqt5=disabled \
+	--default-library=static \
+	--force-fallback-for=gstreamer-1.0,glib,libffi,pcre2,proxy-libintl \
+	--wrap-mode=forcefallback \
+	-Dauto_features=disabled \
+	-Dglib:tests=false \
+	-Djson-glib:tests=false \
+	-Dpcre2:test=false \
+	-Dgstreamer-1.0:libav=disabled \
+	-Dgstreamer-1.0:ugly=disabled \
+	-Dgstreamer-1.0:ges=disabled \
+	-Dgstreamer-1.0:devtools=disabled \
+	-Dglib:nls=disabled \
+	-Dgstreamer-1.0:default_library=static \
+	-Dgstreamer-1.0:rtsp_server=disabled \
+	-Dgstreamer-1.0:gst-full-target-type=static_library \
+	-Dgstreamer-1.0:gst-full-libraries=gstreamer-video-1.0,gstreamer-audio-1.0,gstreamer-app-1.0,gstreamer-codecparsers-1.0,gstreamer-gl-1.0 \
+	-Dgstreamer-1.0:tools=disabled \
+	-Dgst-plugins-base:gl=enabled \
+	-Dgst-plugins-base:playback=enabled \
+	-Dgst-plugins-base:app=enabled \
+	-Dgst-plugins-bad:videoparsers=enabled \
+	-Dgst-plugins-base:typefind=enabled \
 	-Dqt6=enabled \
-	-Dgst-plugins-good:qt6=enabled \
-	-Dgst-plugins-bad:svtav1=disabled \
-	-Dgst-plugins-bad:x265=disabled \
-	-Dexamples=disabled \
-	-Dtests=disabled \
-	-Ddoc=disabled \
-    -Dnls=disabled \
-    -Dtools=disabled \
-	-Dintrospection=disabled
+	-Dgst-plugins-good:qt6=enabled
+
+# BEFORE:
+# --native-file ../meson-native.ini \
+# --prefix="${INSTALL_PREFIX}" \
+# --buildtype=release \
+# -Dcmake_prefix_path="${QT_PATH}" \
+# -Dc_args="${CPP_EXTRA}" \
+# -Dcpp_args="${CPP_EXTRA}" \
+# -Ddefault_library=static \
+# -Dgst-full-target-type=static_library \
+# -Dgpl=enabled \
+# -Dqt5=disabled \
+# -Dqt6=enabled \
+# -Dgst-plugins-good:qt6=enabled \
+# -Dgst-plugins-bad:svtav1=disabled \
+# -Dgst-plugins-bad:x265=disabled \
+# -Dexamples=disabled \
+# -Dtests=disabled \
+# -Ddoc=disabled \
+# -Dnls=disabled \
+# -Dtools=disabled \
+# -Dintrospection=disabled \
 
 echo ""
 echo "Meson configuration complete"
