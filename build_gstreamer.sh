@@ -58,7 +58,7 @@ detect_qt_version_dir() {
 	fi
 }
 
-# Determine Qt version dir present in include layout (e.g., 6.5.6)
+# Determine Qt version dir present in include layout (e.g., 6.5.7)
 QT_VER_DIR=$(detect_qt_version_dir "${QT_PATH}/include/QtCore")
 if [ -z "${QT_VER_DIR}" ]; then
 	QT_VER_DIR=$(detect_qt_version_dir "${QT_PATH}/include/QtGui")
@@ -120,7 +120,7 @@ echo "Meson native file created: meson-native.ini"
 # Step 3b: Install Qt6 pkg-config files from repository templates
 echo ""
 echo "Step 3b: Installing Qt6 pkg-config files (Core/Gui/Qml/Quick)..."
-QT_VER_PKG="${QT_VER_DIR:-6.5.6}"
+QT_VER_PKG="${QT_VER_DIR:-6.5.7}"
 QT_PCDIR="${QT_PATH}/lib/pkgconfig"
 mkdir -p "${QT_PCDIR}"
 for pc in Qt6Core.pc Qt6Gui.pc Qt6Qml.pc Qt6Quick.pc; do
@@ -168,7 +168,7 @@ if [ ! -x "${QT_PATH}/libexec/lrelease" ] && [ ! -x "${QT_PATH}/bin/lrelease" ];
 #!/bin/sh
 case "$1" in
     -v|--version|-version)
-        echo "lrelease version 6.5.6";
+        echo "lrelease version 6.5.7";
         exit 0;
         ;;
 esac
