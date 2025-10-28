@@ -10,6 +10,9 @@ set(CMAKE_PREFIX_PATH "/Users/dan/qt6-static-build")
 # Set the PKG_CONFIG_PATH to point to your custom GStreamer installation
 set(ENV{PKG_CONFIG_PATH} "/Users/dan/code/gstreamer-build/install/lib/pkgconfig:/Users/dan/code/gstreamer-build/install/lib/gstreamer-1.0/pkgconfig:$ENV{PKG_CONFIG_PATH}")
 
+# Enable Qt resource compilation
+set(CMAKE_AUTORCC ON)
+
 # Find Qt6 components needed by the QML6 plugin
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Quick Qml OpenGL)
 
@@ -30,7 +33,10 @@ string(REGEX REPLACE "-lgioenvironmentproxy" "" GSTREAMER_RAW_LIBS "${GSTREAMER_
 # Get other pkg-config info
 pkg_check_modules(GSTREAMER REQUIRED gstreamer-full-1.0>=1.20)
 
-add_executable(gst_test main.cpp)
+# Add the QML resource file
+qt_add_resources(QML_RESOURCES qmlsink.qrc)
+
+add_executable(gst_test main.cpp ${QML_RESOURCES})
 target_include_directories(gst_test PRIVATE ${GSTREAMER_INCLUDE_DIRS})
 target_link_directories(gst_test PRIVATE ${GSTREAMER_LIBRARY_DIRS} /opt/homebrew/lib)
 
@@ -79,5 +85,8 @@ target_link_libraries(gst_test PRIVATE
     Qt6::Qml
     Qt6::OpenGL
 )
+
+qt_import_qml_plugins(gst_test)
+
 
 target_compile_options(gst_test PRIVATE ${GSTREAMER_CFLAGS_OTHER})
