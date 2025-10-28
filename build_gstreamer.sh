@@ -25,8 +25,8 @@ echo "Step 1: Checking dependencies (Homebrew install disabled by default)..."
 INSTALL_DEPS=${INSTALL_DEPS:-false}
 if [ "${INSTALL_DEPS}" = true ]; then
 	brew install meson ninja pkg-config python3 bison flex nasm gettext
-	brew install cairo jpeg libpng opus libvpx x264 jack speex flac lame dv \
-		mpg123 libdv libnice json-glib libsoup openssl libsrtp \
+	brew install cairo jpeg libpng opus libvpx x264 jack speex flac lame \
+		mpg123 libdv libnice json-glib libsoup openssl srtp \
 		libde265 openh264 aom webp libsndfile srt curl
 else
 	echo "Skipping Homebrew installs. Ensure meson, ninja, pkg-config, python3, bison, flex are installed."
@@ -49,72 +49,73 @@ fi
 echo ""
 echo "Step 3: Creating Meson native file for Qt6 private headers (auto-detect + hardcoded versioned private paths)..."
 
-detect_qt_version_dir() {
-	local module_dir
-	module_dir="$1"
-	if [ -d "${module_dir}" ]; then
-		ls -1 "${module_dir}" 2>/dev/null | grep -E '^[0-9]+\.[0-9]+(\.[0-9]+)?$' \
-			| sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1
-	fi
-}
+# detect_qt_version_dir() {
+# 	local module_dir
+# 	module_dir="$1"
+# 	if [ -d "${module_dir}" ]; then
+# 		ls -1 "${module_dir}" 2>/dev/null | grep -E '^[0-9]+\.[0-9]+(\.[0-9]+)?$' \
+# 			| sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1
+# 	fi
+# }
 
-# Determine Qt version dir present in include layout (e.g., 6.5.7)
-QT_VER_DIR=$(detect_qt_version_dir "${QT_PATH}/include/QtCore")
-if [ -z "${QT_VER_DIR}" ]; then
-	QT_VER_DIR=$(detect_qt_version_dir "${QT_PATH}/include/QtGui")
-fi
-echo "Detected Qt include version dir: ${QT_VER_DIR}"
+# # Determine Qt version dir present in include layout (e.g., 6.5.7)
+# QT_VER_DIR=$(detect_qt_version_dir "${QT_PATH}/include/QtCore")
+# if [ -z "${QT_VER_DIR}" ]; then
+# 	QT_VER_DIR=$(detect_qt_version_dir "${QT_PATH}/include/QtGui")
+# fi
+# echo "Detected Qt include version dir: ${QT_VER_DIR}"
 
-# Build include list
-qt_extra_includes=()
-for p in "${QT_PATH}/include/QtGui" "${QT_PATH}/include/QtCore" "${QT_PATH}/include/QtQml" "${QT_PATH}/include/QtQuick"; do
-	[ -d "${p}" ] && qt_extra_includes+=("${p}")
-done
+# # Build include list
+# qt_extra_includes=()
+# for p in "${QT_PATH}/include/QtGui" "${QT_PATH}/include/QtCore" "${QT_PATH}/include/QtQml" "${QT_PATH}/include/QtQuick"; do
+# 	[ -d "${p}" ] && qt_extra_includes+=("${p}")
+# done
 
-if [ -n "${QT_VER_DIR}" ]; then
-	for mod in QtGui QtCore QtQml QtQuick; do
-		cand_priv="${QT_PATH}/include/${mod}/${QT_VER_DIR}/${mod}/private"
-		cand_mod="${QT_PATH}/include/${mod}/${QT_VER_DIR}/${mod}"
-		cand_ver_root="${QT_PATH}/include/${mod}/${QT_VER_DIR}"
-		[ -d "${cand_priv}" ] && qt_extra_includes+=("${cand_priv}")
-		[ -d "${cand_mod}" ] && qt_extra_includes+=("${cand_mod}")
-		[ -d "${cand_ver_root}" ] && qt_extra_includes+=("${cand_ver_root}")
-	done
-fi
+# if [ -n "${QT_VER_DIR}" ]; then
+# 	for mod in QtGui QtCore QtQml QtQuick; do
+# 		cand_priv="${QT_PATH}/include/${mod}/${QT_VER_DIR}/${mod}/private"
+# 		cand_mod="${QT_PATH}/include/${mod}/${QT_VER_DIR}/${mod}"
+# 		cand_ver_root="${QT_PATH}/include/${mod}/${QT_VER_DIR}"
+# 		[ -d "${cand_priv}" ] && qt_extra_includes+=("${cand_priv}")
+# 		[ -d "${cand_mod}" ] && qt_extra_includes+=("${cand_mod}")
+# 		[ -d "${cand_ver_root}" ] && qt_extra_includes+=("${cand_ver_root}")
+# 	done
+# fi
 
-# Also include directories containing commonly needed private headers, if present
-QRHI_DIR=$(dirname "$(find "${QT_PATH}/include/QtGui" -type f -name 'qrhi_p.h' 2>/dev/null | head -n 1)")
-if [ -n "${QRHI_DIR}" ] && [ -d "${QRHI_DIR}" ]; then
-	qt_extra_includes+=("$(dirname "${QRHI_DIR}")")
-	qt_extra_includes+=("$(dirname "$(dirname "${QRHI_DIR}")")")
-fi
-QGLOBAL_DIR=$(dirname "$(find "${QT_PATH}/include/QtCore" -type f -name 'qglobal_p.h' 2>/dev/null | head -n 1)")
-if [ -n "${QGLOBAL_DIR}" ] && [ -d "${QGLOBAL_DIR}" ]; then
-	qt_extra_includes+=("$(dirname "${QGLOBAL_DIR}")")
-	qt_extra_includes+=("$(dirname "$(dirname "${QGLOBAL_DIR}")")")
-fi
+# # Also include directories containing commonly needed private headers, if present
+# QRHI_DIR=$(dirname "$(find "${QT_PATH}/include/QtGui" -type f -name 'qrhi_p.h' 2>/dev/null | head -n 1)")
+# if [ -n "${QRHI_DIR}" ] && [ -d "${QRHI_DIR}" ]; then
+# 	qt_extra_includes+=("$(dirname "${QRHI_DIR}")")
+# 	qt_extra_includes+=("$(dirname "$(dirname "${QRHI_DIR}")")")
+# fi
+# QGLOBAL_DIR=$(dirname "$(find "${QT_PATH}/include/QtCore" -type f -name 'qglobal_p.h' 2>/dev/null | head -n 1)")
+# if [ -n "${QGLOBAL_DIR}" ] && [ -d "${QGLOBAL_DIR}" ]; then
+# 	qt_extra_includes+=("$(dirname "${QGLOBAL_DIR}")")
+# 	qt_extra_includes+=("$(dirname "$(dirname "${QGLOBAL_DIR}")")")
+# fi
 
-{
-	echo "[built-in options]"
-	echo -n "cpp_args = ["
-	first=true
-	for p in "${qt_extra_includes[@]}"; do
-		abs_p=$(cd "${p}" 2>/dev/null && pwd || echo "${p}")
-		if [ "${first}" = true ]; then first=false; else echo -n ", "; fi
-		printf "'"; printf -- "-I%s" "${abs_p}"; printf "'"
-	done
-	echo "]"
-} > meson-native.ini
-
-# Also prepare a space-separated form for -Dcpp_args (Meson CLI)
-CPP_EXTRA=""
-for p in "${qt_extra_includes[@]}"; do
-	abs_p=$(cd "${p}" 2>/dev/null && pwd || echo "${p}")
-	CPP_EXTRA+=" -I${abs_p}"
-done
-# Note: Removed hardcoded Homebrew paths - using system or built-in libraries only
+# {
+# 	echo "[built-in options]"
+# 	echo -n "cpp_args = ["
+# 	first=true
+# 	for p in "${qt_extra_includes[@]}"; do
+# 		abs_p=$(cd "${p}" 2>/dev/null && pwd || echo "${p}")
+# 		if [ "${first}" = true ]; then first=false; else echo -n ", "; fi
+# 		printf "'"; printf -- "-I%s" "${abs_p}"; printf "'"
+# 	done
+# 	echo "]"
+# } > meson-native.ini
 
 echo "Meson native file created: meson-native.ini"
+
+# # Also prepare a space-separated form for -Dcpp_args (Meson CLI)
+# CPP_EXTRA=""
+# for p in "${qt_extra_includes[@]}"; do
+# 	abs_p=$(cd "${p}" 2>/dev/null && pwd || echo "${p}")
+# 	CPP_EXTRA+=" -I${abs_p}"
+# done
+# Note: Removed hardcoded Homebrew paths - using system or built-in libraries only
+
 
 # Step 3b: Install Qt6 pkg-config files from repository templates
 echo ""
@@ -155,13 +156,13 @@ export PKG_CONFIG_PATH="${QT_PATH}/lib/pkgconfig"
 export PKG_CONFIG_LIBDIR="${QT_PATH}/lib/pkgconfig"
 export PATH="${QT_PATH}/bin:${QT_PATH}/libexec:${PATH}"
 export CMAKE_PREFIX_PATH="${QT_PATH}"
-export Qt6_DIR="${QT_PATH}/lib/cmake/Qt6"
-export QT_PLUGIN_PATH="${QT_PATH}/plugins:${QT_PLUGIN_PATH}"
-export QML2_IMPORT_PATH="${QT_PATH}/qml:${QML2_IMPORT_PATH}"
-# Removed Homebrew-specific LDFLAGS and CPPFLAGS
-export QT_HOST_BINS="${QT_PATH}/bin"
-export QMAKE="${QT_PATH}/bin/qmake6"
-export QSB="${QT_PATH}/bin/qsb"
+# export Qt6_DIR="${QT_PATH}/lib/cmake/Qt6"
+# export QT_PLUGIN_PATH="${QT_PATH}/plugins:${QT_PLUGIN_PATH}"
+# export QML2_IMPORT_PATH="${QT_PATH}/qml:${QML2_IMPORT_PATH}"
+# # Removed Homebrew-specific LDFLAGS and CPPFLAGS
+# export QT_HOST_BINS="${QT_PATH}/bin"
+# export QMAKE="${QT_PATH}/bin/qmake6"
+# export QSB="${QT_PATH}/bin/qsb"
 # PKG_CONFIG_PATH already set above without Homebrew paths
 
 # Ensure lrelease tool is available (Qt Linguist Tools may be missing in static builds)
@@ -206,12 +207,9 @@ fi
 # Configure with Meson (STATIC build)
 
 meson setup builddir \
-	--native-file ../meson-native.ini \
 	--prefix="${INSTALL_PREFIX}" \
 	--buildtype=release \
 	-Dcmake_prefix_path="${QT_PATH}" \
-	-Dc_args="${CPP_EXTRA}" \
-	-Dcpp_args="${CPP_EXTRA}" \
 	--default-library=static \
 	--force-fallback-for=gstreamer-1.0,glib,libffi,pcre2,proxy-libintl \
 	--wrap-mode=forcefallback \
