@@ -230,6 +230,8 @@ meson setup builddir \
 	-Dgst-plugins-base:gl=enabled \
 	-Dgst-plugins-base:playback=enabled \
 	-Dgst-plugins-base:app=enabled \
+	-Dgst-plugins-base:videotestsrc=enabled \
+	-Dgst-plugins-base:videoconvertscale=enabled \
 	-Dgst-plugins-bad:videoparsers=enabled \
 	-Dgst-plugins-base:typefind=enabled \
 	-Dqt6=enabled \

@@ -38,7 +38,7 @@ qt_add_resources(QML_RESOURCES qmlsink.qrc)
 
 add_executable(gst_test main.cpp ${QML_RESOURCES})
 target_include_directories(gst_test PRIVATE ${GSTREAMER_INCLUDE_DIRS})
-target_link_directories(gst_test PRIVATE ${GSTREAMER_LIBRARY_DIRS} /opt/homebrew/lib)
+# target_link_directories(gst_test PRIVATE ${GSTREAMER_LIBRARY_DIRS} /opt/homebrew/lib)
 
 # Parse libraries and separate frameworks from regular libraries
 separate_arguments(GSTREAMER_LIBS_LIST UNIX_COMMAND "${GSTREAMER_RAW_LIBS}")
