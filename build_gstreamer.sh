@@ -234,6 +234,7 @@ meson setup builddir \
 	-Dgst-plugins-base:playback=enabled \
 	-Dgst-plugins-base:app=enabled \
 	-Dgst-plugins-base:videoconvertscale=enabled \
+	-Dgst-plugins-base:videotestsrc=enabled \
 	-Dgst-plugins-base:audioresample=enabled \
 	-Dgst-plugins-base:audioconvert=enabled \
 	-Dgst-plugins-base:typefind=enabled \
