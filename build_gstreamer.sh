@@ -58,7 +58,7 @@ echo "Step 3: Creating Meson native file for Qt6 private headers (auto-detect + 
 # 	fi
 # }
 
-# # Determine Qt version dir present in include layout (e.g., 6.5.7)
+# # Determine Qt version dir present in include layout (e.g., 6.5.6)
 # QT_VER_DIR=$(detect_qt_version_dir "${QT_PATH}/include/QtCore")
 # if [ -z "${QT_VER_DIR}" ]; then
 # 	QT_VER_DIR=$(detect_qt_version_dir "${QT_PATH}/include/QtGui")
@@ -120,7 +120,7 @@ echo "Meson native file created: meson-native.ini"
 # Step 3b: Install Qt6 pkg-config files from repository templates
 echo ""
 echo "Step 3b: Installing Qt6 pkg-config files (Core/Gui/Qml/Quick)..."
-QT_VER_PKG="${QT_VER_DIR:-6.5.7}"
+QT_VER_PKG="${QT_VER_DIR:-6.5.6}"
 QT_PCDIR="${QT_PATH}/lib/pkgconfig"
 mkdir -p "${QT_PCDIR}"
 for pc in Qt6Core.pc Qt6Gui.pc Qt6Qml.pc Qt6Quick.pc; do
@@ -173,7 +173,7 @@ if [ ! -x "${QT_PATH}/libexec/lrelease" ] && [ ! -x "${QT_PATH}/bin/lrelease" ];
 #!/bin/sh
 case "$1" in
     -v|--version|-version)
-        echo "lrelease version 6.5.7";
+        echo "lrelease version 6.5.6";
         exit 0;
         ;;
 esac
@@ -205,6 +205,8 @@ if [ -d "${PROXY_INTL_DIR}" ]; then
 fi
 
 # Configure with Meson (STATIC build)
+# Enable gst-full (monolithic static library)
+# Use wildcard for plugins to include all enabled plugins
 
 meson setup builddir \
 	--prefix="${INSTALL_PREFIX}" \
@@ -224,15 +226,16 @@ meson setup builddir \
 	-Dglib:nls=disabled \
 	-Dgstreamer-1.0:default_library=static \
 	-Dgstreamer-1.0:rtsp_server=disabled \
-	-Dgstreamer-1.0:gst-full-target-type=static_library \
-	-Dgstreamer-1.0:gst-full-libraries=gstreamer-video-1.0,gstreamer-audio-1.0,gstreamer-app-1.0,gstreamer-codecparsers-1.0,gstreamer-gl-1.0 \
+	-Dgst-full=enabled \
+	-Dgst-full-target-type=static_library \
+	-Dgst-full-libraries=gstreamer-video-1.0,gstreamer-audio-1.0,gstreamer-app-1.0,gstreamer-gl-1.0,gstreamer-base-1.0,gstreamer-tag-1.0,gstreamer-pbutils-1.0 \
 	-Dgstreamer-1.0:tools=disabled \
 	-Dgst-plugins-base:gl=enabled \
 	-Dgst-plugins-base:playback=enabled \
 	-Dgst-plugins-base:app=enabled \
-	-Dgst-plugins-base:videotestsrc=enabled \
 	-Dgst-plugins-base:videoconvertscale=enabled \
-	-Dgst-plugins-bad:videoparsers=enabled \
+	-Dgst-plugins-base:audioresample=enabled \
+	-Dgst-plugins-base:audioconvert=enabled \
 	-Dgst-plugins-base:typefind=enabled \
 	-Dqt6=enabled \
 	-Dgst-plugins-good:qt6=enabled
@@ -299,9 +302,11 @@ echo "Looking for libgstreamer-full-1.0.a under ${INSTALL_PREFIX}/lib..."
 GST_FULL_A="${INSTALL_PREFIX}/lib/libgstreamer-full-1.0.a"
 if [ -f "${GST_FULL_A}" ]; then
 	echo "Found static lib: ${GST_FULL_A}"
+	echo "Size: $(ls -lh "${GST_FULL_A}" | awk '{print $5}')"
 else
 	echo "ERROR: libgstreamer-full-1.0.a not found."
-	(ls -la "${INSTALL_PREFIX}/lib" || true)
+	echo "Available libraries:"
+	(ls -lh "${INSTALL_PREFIX}/lib"/*.a 2>/dev/null || true)
 	exit 1
 fi
 
