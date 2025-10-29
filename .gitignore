@@ -1,2 +1,4 @@
 gstreamer/
 install/
+testpipe/build/
+qmlsink/build/
