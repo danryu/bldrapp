@@ -25,9 +25,9 @@ echo "Step 1: Checking dependencies (Homebrew install disabled by default)..."
 INSTALL_DEPS=${INSTALL_DEPS:-false}
 if [ "${INSTALL_DEPS}" = true ]; then
 	brew install meson ninja pkg-config python3 bison flex nasm gettext
-	brew install cairo jpeg libpng opus libvpx x264 jack speex flac lame \
-		mpg123 libdv libnice json-glib libsoup openssl srtp \
-		libde265 openh264 aom webp libsndfile srt curl
+	# brew install cairo jpeg libpng opus libvpx jack speex flac lame \
+	# 	mpg123 libdv libnice json-glib libsoup openssl srtp \
+	# 	libde265 aom webp libsndfile srt curl
 else
 	echo "Skipping Homebrew installs. Ensure meson, ninja, pkg-config, python3, bison, flex are installed."
 fi
@@ -39,7 +39,7 @@ if [ ! -d "gstreamer" ]; then
 	git clone https://gitlab.freedesktop.org/gstreamer/gstreamer.git
 	cd gstreamer
 	# Use a stable release
-	git checkout 1.24.9 || git checkout main
+	git checkout 1.24.9 
 	cd ..
 else
 	echo "GStreamer repository already exists, skipping clone"
@@ -49,7 +49,7 @@ fi
 # Step 3b: Install Qt6 pkg-config files from repository templates
 echo ""
 echo "Step 3b: Installing Qt6 pkg-config files (Core/Gui/Qml/Quick)..."
-QT_VER_PKG="${QT_VER_DIR:-6.5.6}"
+QT_VER_PKG="6.5.7"
 QT_PCDIR="${QT_PATH}/lib/pkgconfig"
 mkdir -p "${QT_PCDIR}"
 for pc in Qt6Core.pc Qt6Gui.pc Qt6Qml.pc Qt6Quick.pc; do
@@ -74,11 +74,6 @@ if [ -d "builddir" ]; then
 	rm -rf builddir
 fi
 
-# Ensure our local wrap is installed for proxy-libintl fallback
-if [ -f "${BUILD_DIR}/wraps/proxy-libintl.wrap" ]; then
-	mkdir -p "subprojects"
-	cp -f "${BUILD_DIR}/wraps/proxy-libintl.wrap" "subprojects/proxy-libintl.wrap"
-fi
 
 # Set up environment for Qt6 (STATIC)
 export PKG_CONFIG_PATH="${QT_PATH}/lib/pkgconfig"
@@ -86,28 +81,13 @@ export PKG_CONFIG_LIBDIR="${QT_PATH}/lib/pkgconfig"
 export PATH="${QT_PATH}/bin:${QT_PATH}/libexec:${PATH}"
 export CMAKE_PREFIX_PATH="${QT_PATH}"
 
-# Ensure lrelease tool is available (Qt Linguist Tools may be missing in static builds)
-if [ ! -x "${QT_PATH}/libexec/lrelease" ] && [ ! -x "${QT_PATH}/bin/lrelease" ]; then
-    echo "Creating shim for missing Qt tool: lrelease"
-    mkdir -p "${QT_PATH}/libexec"
-    cat > "${QT_PATH}/libexec/lrelease" <<'EOF'
-#!/bin/sh
-case "$1" in
-    -v|--version|-version)
-        echo "lrelease version 6.5.6";
-        exit 0;
-        ;;
-esac
-# No-op shim; qml6 plugin build does not use lrelease.
-exit 0
-EOF
-    chmod +x "${QT_PATH}/libexec/lrelease"
-    # Provide alternative names often probed by Meson
-    ln -sf "${QT_PATH}/libexec/lrelease" "${QT_PATH}/libexec/lrelease6" 2>/dev/null || true
-    ln -sf "${QT_PATH}/libexec/lrelease" "${QT_PATH}/libexec/lrelease-qt6" 2>/dev/null || true
+# Ensure our local wrap is installed for proxy-libintl fallback
+if [ -f "${BUILD_DIR}/wraps/proxy-libintl.wrap" ]; then
+	mkdir -p "subprojects"
+	cp -f "${BUILD_DIR}/wraps/proxy-libintl.wrap" "subprojects/proxy-libintl.wrap"
 fi
 
-
+# Download proxy-libintl
 meson subprojects download proxy-libintl || true
 
 # Ensure proxy-libintl overrides dependency('intl') even if upstream changes
@@ -130,7 +110,6 @@ meson setup builddir \
 	-Dcmake_prefix_path="${QT_PATH}" \
 	--default-library=static \
 	--force-fallback-for=gstreamer-1.0,glib,libffi,pcre2,proxy-libintl \
-	--wrap-mode=forcefallback \
 	-Dauto_features=disabled \
 	-Dglib:tests=false \
 	-Djson-glib:tests=false \
@@ -144,7 +123,7 @@ meson setup builddir \
 	-Dgstreamer-1.0:rtsp_server=disabled \
 	-Dgst-full=enabled \
 	-Dgst-full-target-type=static_library \
-	-Dgst-full-libraries=gstreamer-video-1.0,gstreamer-audio-1.0,gstreamer-app-1.0,gstreamer-gl-1.0,gstreamer-base-1.0,gstreamer-tag-1.0,gstreamer-pbutils-1.0 \
+	-Dgst-full-libraries=gstreamer-video-1.0,gstreamer-audio-1.0,gstreamer-app-1.0,gstreamer-gl-1.0,gstreamer-base-1.0,gstreamer-tag-1.0,gstreamer-pbutils-1.0,gstreamer-rtp-1.0 \
 	-Dgstreamer-1.0:tools=disabled \
 	-Dgst-plugins-base:gl=enabled \
 	-Dgst-plugins-base:playback=enabled \
@@ -153,7 +132,28 @@ meson setup builddir \
 	-Dgst-plugins-base:videotestsrc=enabled \
 	-Dgst-plugins-base:audioresample=enabled \
 	-Dgst-plugins-base:audioconvert=enabled \
+	-Dgst-plugins-base:audiotestsrc=enabled \
 	-Dgst-plugins-base:typefind=enabled \
+	-Dgst-plugins-base:rawparse=enabled \
+	-Dgst-plugins-good:rtp=enabled \
+	-Dgst-plugins-good:rtpmanager=enabled \
+	-Dgst-plugins-good:rtsp=enabled \
+	-Dgst-plugins-good:udp=enabled \
+	-Dgst-plugins-good:videofilter=enabled \
+	-Dgst-plugins-good:videomixer=enabled \
+	-Dgst-plugins-good:audioparsers=enabled \
+	-Dgst-plugins-good:autodetect=enabled \
+	-Dgst-plugins-bad:dtls=enabled \
+	-Dgst-plugins-bad:srtp=enabled \
+	-Dgst-plugins-bad:videoparsers=enabled \
+	-Dgst-plugins-bad:aom=enabled \
+	-Dlibnice=enabled \
+	-Dlibnice:crypto-library=openssl \
+	-Dlibnice:gstreamer=enabled \
+	-Dlibnice:tests=disabled \
+	-Dlibnice:examples=disabled \
+	-Dlibnice:introspection=disabled \
+	-Dgst-plugins-base:opus=enabled \
 	-Dqt6=enabled \
 	-Dgst-plugins-good:qt6=enabled
 
