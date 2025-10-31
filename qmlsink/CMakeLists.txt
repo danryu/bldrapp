@@ -62,7 +62,3 @@ target_link_libraries(qml6sink PRIVATE
 message(STATUS "GStreamer installation: ${GSTREAMER_INSTALL_PREFIX}")
 message(STATUS "Qt6 installation: ${QT_INSTALL_PREFIX}")
 message(STATUS "")
-message(STATUS "To run qml6sink, set these environment variables:")
-message(STATUS "  export GST_PLUGIN_PATH=\"${GSTREAMER_INSTALL_PREFIX}/lib/gstreamer-1.0\"")
-message(STATUS "  export DYLD_LIBRARY_PATH=\"${GSTREAMER_INSTALL_PREFIX}/lib:\$DYLD_LIBRARY_PATH\"")
-message(STATUS "  export QML2_IMPORT_PATH=\"${QT_INSTALL_PREFIX}/qml:\$QML2_IMPORT_PATH\"")
