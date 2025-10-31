@@ -81,13 +81,29 @@ export PKG_CONFIG_LIBDIR="${QT_PATH}/lib/pkgconfig"
 export PATH="${QT_PATH}/bin:${QT_PATH}/libexec:${PATH}"
 export CMAKE_PREFIX_PATH="${QT_PATH}"
 
-# Ensure our local wrap is installed for proxy-libintl fallback
+# Ensure our local wraps are installed for fallbacks/custom subprojects
 if [ -f "${BUILD_DIR}/wraps/proxy-libintl.wrap" ]; then
 	mkdir -p "subprojects"
 	cp -f "${BUILD_DIR}/wraps/proxy-libintl.wrap" "subprojects/proxy-libintl.wrap"
 fi
+if [ -f "${BUILD_DIR}/wraps/gstjitsimeet.wrap" ]; then
+	mkdir -p "subprojects"
+	cp -f "${BUILD_DIR}/wraps/gstjitsimeet.wrap" "subprojects/gstjitsimeet.wrap"
+fi
 
-# Download proxy-libintl
+# Link local gstjitsimeet directory into subprojects to avoid any VCS/network usage
+GSTJ_LOCAL="/Users/dan/code/gstjitsimeet"
+if [ -d "${GSTJ_LOCAL}" ] && [ ! -d "subprojects/gstjitsimeet" ]; then
+	ln -s "${GSTJ_LOCAL}" "subprojects/gstjitsimeet"
+fi
+
+# If gstjitsimeet's local coop install exists, expose its pkg-config path
+GSTJ_COOP_PC="$(pwd)/subprojects/gstjitsimeet/deps/coop-install/lib/pkgconfig"
+if [ -d "${GSTJ_COOP_PC}" ]; then
+	export PKG_CONFIG_PATH="${GSTJ_COOP_PC}:${PKG_CONFIG_PATH}"
+fi
+
+# Download proxy-libintl; gstjitsimeet is provided locally via symlink
 meson subprojects download proxy-libintl || true
 
 # Ensure proxy-libintl overrides dependency('intl') even if upstream changes
@@ -100,6 +116,33 @@ if [ -d "${PROXY_INTL_DIR}" ]; then
 	fi
 fi
 
+# Ensure libnice overrides dependency('nice') for superprojects
+LIBNICE_NICE_DIR="subprojects/libnice/nice"
+if [ -d "${LIBNICE_NICE_DIR}" ]; then
+	if ! grep -q "override_dependency('nice'" "${LIBNICE_NICE_DIR}/meson.build" 2>/dev/null; then
+		if [ -f "${BUILD_DIR}/patches/libnice/meson.build.append" ]; then
+			printf "\n%s\n" "$(cat "${BUILD_DIR}/patches/libnice/meson.build.append")" >> "${LIBNICE_NICE_DIR}/meson.build"
+		fi
+	fi
+fi
+
+# Provide a local pkg-config for libnice so external subprojects can find it pre-install
+mkdir -p local-pc
+cat > local-pc/nice.pc << 'EOF'
+prefix=@PWD@
+includedir=${prefix}/subprojects/libnice/nice
+libdir=${prefix}/builddir/subprojects/libnice
+
+Name: libnice
+Description: ICE library
+Version: 0.1.22
+Libs: -L${libdir} -lnice
+Cflags: -I${includedir}
+EOF
+# Replace @PWD@ with current gstreamer dir
+sed -i '' -e "s#@PWD@#$(pwd)#g" local-pc/nice.pc
+export PKG_CONFIG_PATH="$(pwd)/local-pc:${PKG_CONFIG_PATH}"
+
 # Configure with Meson (STATIC build)
 # Enable gst-full (monolithic static library)
 # Use wildcard for plugins to include all enabled plugins
@@ -109,6 +152,7 @@ meson setup builddir \
 	--buildtype=release \
 	-Dcmake_prefix_path="${QT_PATH}" \
 	--default-library=static \
+	-Dcustom_subprojects=gstjitsimeet \
 	--force-fallback-for=gstreamer-1.0,glib,libffi,pcre2,proxy-libintl \
 	-Dauto_features=disabled \
 	-Dglib:tests=false \

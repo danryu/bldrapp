@@ -1,0 +1,4 @@
+# Make this subproject satisfy dependency('nice') in superprojects
+meson.override_dependency('nice', libnice_dep)
+
+
