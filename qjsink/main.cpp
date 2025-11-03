@@ -139,7 +139,7 @@ int main(int argc, char* argv[]) {
   g_object_set(G_OBJECT(jitsibin),
                "server", host,
                "room", room,
-               "nick", "nuQtest",
+               "nick", "qjsink_user",
                // Ensure sender uses AV1 so jitsibin selects rtpav1pay
                "video-codec", 4, /* Av1 enum value */
                "receive-limit", 3,

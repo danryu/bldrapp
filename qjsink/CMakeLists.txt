@@ -27,6 +27,9 @@ pkg_check_modules(GSTREAMER REQUIRED IMPORTED_TARGET gstreamer-full-1.0)
 
 # Source files
 set(SOURCES main.cpp)
+# When statically linking libraries with embedded Qt resources, always use unique QRC filenames to avoid qInitResources_* function name collisions
+# ie specifically don't use filename "resources.qrc", ever. Use a unique filename like "qjsink.qrc"
+# Otherwise you'll get runtime errors like Failed to find shader ":/org/freedesktop/gstreamer/qml6/vertex.vert.qsb
 set(RESOURCES qjsink.qrc)
 
 # Create executable
@@ -54,8 +57,9 @@ target_link_libraries(qjsink PRIVATE
     Qt6::Qml
     Qt6::Quick
     PkgConfig::GSTREAMER
+    # include the libgstqml6.a library here to overcome missing symbols: qInitResources_resources(), _gst_plugin_qml6_register
     ${GSTREAMER_INSTALL_PREFIX}/lib/gstreamer-1.0/libgstqml6.a
-    ${GSTREAMER_INSTALL_PREFIX}/lib/libintl.a
+    # ${GSTREAMER_INSTALL_PREFIX}/lib/libintl.a
 )
 
 # Information messages
