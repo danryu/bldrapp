@@ -9,20 +9,53 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
 # Set paths
-set(GSTREAMER_INSTALL_PREFIX "${CMAKE_CURRENT_SOURCE_DIR}/../install" CACHE PATH "GStreamer installation prefix")
+set(GINST "${CMAKE_CURRENT_SOURCE_DIR}/../install" CACHE PATH "GStreamer installation prefix")
+# Convert GINST to absolute path for use in PKG_CONFIG_PATH
+get_filename_component(GINST_ABS "${GINST}" ABSOLUTE)
+
+# Codec libraries are installed at the workspace root, not under GINST
+set(WORKSPACE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/..")
+get_filename_component(WORKSPACE_ROOT_ABS "${WORKSPACE_ROOT}" ABSOLUTE)
+
 set(QT_INSTALL_PREFIX "/Users/dan/qt6-static-build" CACHE PATH "Qt6 installation prefix")
 
 # Add to CMAKE_PREFIX_PATH
 list(APPEND CMAKE_PREFIX_PATH "${QT_INSTALL_PREFIX}")
 
-# Set PKG_CONFIG_PATH to find GStreamer (including plugin pkgconfig files)
-set(ENV{PKG_CONFIG_PATH} "/Users/dan/code/gstreamer-build/aom-install/lib/pkgconfig:/Users/dan/code/gstreamer-build/libwebsockets-install/lib/pkgconfig:/Users/dan/code/gstjitsimeet/deps/coop-install/lib/pkgconfig:${GSTREAMER_INSTALL_PREFIX}/lib/pkgconfig:${GSTREAMER_INSTALL_PREFIX}/lib/gstreamer-1.0/pkgconfig:${QT_INSTALL_PREFIX}/lib/pkgconfig:$ENV{PKG_CONFIG_PATH}")
+# Build PKG_CONFIG_PATH to find GStreamer (including plugin pkgconfig files)
+set(PKG_CONFIG_PATH_DIRS
+    "${WORKSPACE_ROOT_ABS}/openh264-install/lib/pkgconfig"
+    "${WORKSPACE_ROOT_ABS}/vpx-install/lib/pkgconfig"
+    "${WORKSPACE_ROOT_ABS}/aom-install/lib/pkgconfig"
+    "${WORKSPACE_ROOT_ABS}/openssl-install/lib/pkgconfig"
+    "${WORKSPACE_ROOT_ABS}/libwebsockets-install/lib/pkgconfig"
+    "/Users/dan/code/gstjitsimeet/deps/coop-install/lib/pkgconfig"
+    "${GINST_ABS}/lib/pkgconfig"
+    "${GINST_ABS}/lib/gstreamer-1.0/pkgconfig"
+    "${QT_INSTALL_PREFIX}/lib/pkgconfig"
+)
+
+# Join with colons and set environment
+string(REPLACE ";" ":" PKG_CONFIG_PATH_STR "${PKG_CONFIG_PATH_DIRS}")
+set(ENV{PKG_CONFIG_PATH} "${PKG_CONFIG_PATH_STR}:$ENV{PKG_CONFIG_PATH}")
+
+# Debug: Print the constructed PKG_CONFIG_PATH
+message(STATUS "PKG_CONFIG_PATH_STR = ${PKG_CONFIG_PATH_STR}")
+message(STATUS "ENV{PKG_CONFIG_PATH} = $ENV{PKG_CONFIG_PATH}")
 
 # Find Qt6
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick)
 
 # Find GStreamer via pkg-config
 find_package(PkgConfig REQUIRED)
+
+# Set PKG_CONFIG_PATH for pkg-config to find all dependencies
+set(ENV{PKG_CONFIG_PATH} "${PKG_CONFIG_PATH_STR}:$ENV{PKG_CONFIG_PATH}")
+
+# Debug: Print PKG_CONFIG_PATH right before pkg_check_modules
+message(STATUS "About to run pkg_check_modules with PKG_CONFIG_PATH:")
+message(STATUS "  $ENV{PKG_CONFIG_PATH}")
+
 pkg_check_modules(GSTREAMER REQUIRED IMPORTED_TARGET gstreamer-full-1.0)
 
 # Source files
@@ -58,11 +91,11 @@ target_link_libraries(qjsink PRIVATE
     Qt6::Quick
     PkgConfig::GSTREAMER
     # include the libgstqml6.a library here to overcome missing symbols: qInitResources_resources(), _gst_plugin_qml6_register
-    ${GSTREAMER_INSTALL_PREFIX}/lib/gstreamer-1.0/libgstqml6.a
-    # ${GSTREAMER_INSTALL_PREFIX}/lib/libintl.a
+    ${GINST_ABS}/lib/gstreamer-1.0/libgstqml6.a
+    # ${GINST}/lib/libintl.a
 )
 
 # Information messages
-message(STATUS "GStreamer installation: ${GSTREAMER_INSTALL_PREFIX}")
+message(STATUS "GStreamer installation: ${GINST}")
 message(STATUS "Qt6 installation: ${QT_INSTALL_PREFIX}")
 message(STATUS "")

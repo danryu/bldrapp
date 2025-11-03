@@ -87,8 +87,10 @@ export RUSTFLAGS="-C link-arg=-mmacosx-version-min=13.3 -C link-arg=-lz ${RUSTFL
 export CFLAGS="-mmacosx-version-min=13.3 ${CFLAGS}"
 export CXXFLAGS="-mmacosx-version-min=13.3 ${CXXFLAGS}"
 
+##############################################################################################################################
 # Build OpenSSL separately with CMake before Meson configure
 # This provides static SSL libraries for libwebsockets and libnice
+##############################################################################################################################
 OPENSSL_INSTALL="${BUILD_DIR}/openssl-install"
 echo ""
 echo "Step 3a: Building OpenSSL from source..."
@@ -123,9 +125,12 @@ fi
 # Expose OpenSSL via PKG_CONFIG_PATH
 export PKG_CONFIG_PATH="${OPENSSL_INSTALL}/lib/pkgconfig:${PKG_CONFIG_PATH}"
 echo "Added OpenSSL to PKG_CONFIG_PATH: ${OPENSSL_INSTALL}/lib/pkgconfig"
+##############################################################################################################################
 
+##############################################################################################################################
 # Build AOM separately with CMake before Meson configure
 # This provides static AV1 codec support
+##############################################################################################################################
 AOM_INSTALL="${BUILD_DIR}/aom-install"
 echo ""
 echo "Step 3b: Building AOM from source..."
@@ -163,8 +168,11 @@ fi
 # Expose AOM via PKG_CONFIG_PATH
 export PKG_CONFIG_PATH="${AOM_INSTALL}/lib/pkgconfig:${PKG_CONFIG_PATH}"
 echo "Added AOM to PKG_CONFIG_PATH: ${AOM_INSTALL}/lib/pkgconfig"
+##############################################################################################################################
 
+##############################################################################################################################
 # Build libvpx separately for VP8/VP9 support
+##############################################################################################################################
 VPX_INSTALL="${BUILD_DIR}/vpx-install"
 echo ""
 echo "Step 3c: Building libvpx from source..."
@@ -205,8 +213,11 @@ fi
 # Expose libvpx via PKG_CONFIG_PATH
 export PKG_CONFIG_PATH="${VPX_INSTALL}/lib/pkgconfig:${PKG_CONFIG_PATH}"
 echo "Added libvpx to PKG_CONFIG_PATH: ${VPX_INSTALL}/lib/pkgconfig"
+##############################################################################################################################
 
+##############################################################################################################################
 # Build openh264 separately for H.264 support
+##############################################################################################################################
 OPENH264_INSTALL="${BUILD_DIR}/openh264-install"
 echo ""
 echo "Step 3d: Building openh264 from source..."
@@ -218,14 +229,14 @@ if [ ! -d "${OPENH264_INSTALL}" ]; then
 	fi
 	cd openh264-src
 	
-	echo "Building openh264..."
+	echo "Building openh264 static library..."
 	make -j$(sysctl -n hw.ncpu) \
 		PREFIX="${OPENH264_INSTALL}" \
-		ENABLESHARED=No \
-		BUILDTYPE=Release
+		BUILDTYPE=Release \
+		libraries
 	
-	echo "Installing openh264 to ${OPENH264_INSTALL}..."
-	make install PREFIX="${OPENH264_INSTALL}"
+	echo "Installing openh264 static library to ${OPENH264_INSTALL}..."
+	make install-static-lib PREFIX="${OPENH264_INSTALL}"
 	
 	cd "${BUILD_DIR}/gstreamer"
 	echo "openh264 build complete!"
@@ -236,9 +247,12 @@ fi
 # Expose openh264 via PKG_CONFIG_PATH
 export PKG_CONFIG_PATH="${OPENH264_INSTALL}/lib/pkgconfig:${PKG_CONFIG_PATH}"
 echo "Added openh264 to PKG_CONFIG_PATH: ${OPENH264_INSTALL}/lib/pkgconfig"
+##############################################################################################################################
 
+##############################################################################################################################
 # Build libwebsockets separately with CMake before Meson configure
 # This avoids Meson/CMake integration issues and ensures a clean static build
+##############################################################################################################################
 LWS_INSTALL="${BUILD_DIR}/libwebsockets-install"
 echo ""
 echo "Step 3c: Building libwebsockets from source..."
@@ -294,6 +308,10 @@ fi
 # Expose libwebsockets via PKG_CONFIG_PATH
 export PKG_CONFIG_PATH="${LWS_INSTALL}/lib/pkgconfig:${PKG_CONFIG_PATH}"
 echo "Added libwebsockets to PKG_CONFIG_PATH: ${LWS_INSTALL}/lib/pkgconfig"
+##############################################################################################################################
+
+
+##############################################################################################################################
 
 # Ensure our local wraps are installed for fallbacks/custom subprojects
 if [ -f "${BUILD_DIR}/wraps/proxy-libintl.wrap" ]; then
@@ -317,7 +335,9 @@ GSTJ_COOP_PC="$(pwd)/subprojects/gstjitsimeet/deps/coop-install/lib/pkgconfig"
 if [ -d "${GSTJ_COOP_PC}" ]; then
 	export PKG_CONFIG_PATH="${GSTJ_COOP_PC}:${PKG_CONFIG_PATH}"
 fi
+##############################################################################################################################
 
+##############################################################################################################################
 # Download proxy-libintl; gstjitsimeet is provided locally via symlink, libwebsockets pre-built
 meson subprojects download proxy-libintl || true
 
@@ -330,33 +350,34 @@ if [ -d "${PROXY_INTL_DIR}" ]; then
 		fi
 	fi
 fi
+##############################################################################################################################
 
-# Ensure libnice overrides dependency('nice') for superprojects
-LIBNICE_NICE_DIR="subprojects/libnice/nice"
-if [ -d "${LIBNICE_NICE_DIR}" ]; then
-	if ! grep -q "override_dependency('nice'" "${LIBNICE_NICE_DIR}/meson.build" 2>/dev/null; then
-		if [ -f "${BUILD_DIR}/patches/libnice/meson.build.append" ]; then
-			printf "\n%s\n" "$(cat "${BUILD_DIR}/patches/libnice/meson.build.append")" >> "${LIBNICE_NICE_DIR}/meson.build"
-		fi
-	fi
-fi
+# # Ensure libnice overrides dependency('nice') for superprojects
+# LIBNICE_NICE_DIR="subprojects/libnice/nice"
+# if [ -d "${LIBNICE_NICE_DIR}" ]; then
+# 	if ! grep -q "override_dependency('nice'" "${LIBNICE_NICE_DIR}/meson.build" 2>/dev/null; then
+# 		if [ -f "${BUILD_DIR}/patches/libnice/meson.build.append" ]; then
+# 			printf "\n%s\n" "$(cat "${BUILD_DIR}/patches/libnice/meson.build.append")" >> "${LIBNICE_NICE_DIR}/meson.build"
+# 		fi
+# 	fi
+# fi
 
-# Provide a local pkg-config for libnice so external subprojects can find it pre-install
-mkdir -p local-pc
-cat > local-pc/nice.pc << 'EOF'
-prefix=@PWD@
-includedir=${prefix}/subprojects/libnice/nice
-libdir=${prefix}/builddir/subprojects/libnice
+# # Provide a local pkg-config for libnice so external subprojects can find it pre-install
+# mkdir -p local-pc
+# cat > local-pc/nice.pc << 'EOF'
+# prefix=@PWD@
+# includedir=${prefix}/subprojects/libnice/nice
+# libdir=${prefix}/builddir/subprojects/libnice
 
-Name: libnice
-Description: ICE library
-Version: 0.1.22
-Libs: -L${libdir} -lnice
-Cflags: -I${includedir}
-EOF
-# Replace @PWD@ with current gstreamer dir
-sed -i '' -e "s#@PWD@#$(pwd)#g" local-pc/nice.pc
-export PKG_CONFIG_PATH="$(pwd)/local-pc:${PKG_CONFIG_PATH}"
+# Name: libnice
+# Description: ICE library
+# Version: 0.1.22
+# Libs: -L${libdir} -lnice
+# Cflags: -I${includedir}
+# EOF
+# # Replace @PWD@ with current gstreamer dir
+# sed -i '' -e "s#@PWD@#$(pwd)#g" local-pc/nice.pc
+# export PKG_CONFIG_PATH="$(pwd)/local-pc:${PKG_CONFIG_PATH}"
 
 # Configure with Meson (STATIC build)
 # Enable gst-full (monolithic static library)
