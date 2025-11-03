@@ -2,3 +2,9 @@ gstreamer/
 install/
 testpipe/build/
 qmlsink/build/
+aom-install/
+libwebsockets-src/
+libwebsockets-install/
+openssl-install/
+openssl-src/
+qjsink/build/
