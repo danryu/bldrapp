@@ -164,6 +164,79 @@ fi
 export PKG_CONFIG_PATH="${AOM_INSTALL}/lib/pkgconfig:${PKG_CONFIG_PATH}"
 echo "Added AOM to PKG_CONFIG_PATH: ${AOM_INSTALL}/lib/pkgconfig"
 
+# Build libvpx separately for VP8/VP9 support
+VPX_INSTALL="${BUILD_DIR}/vpx-install"
+echo ""
+echo "Step 3c: Building libvpx from source..."
+if [ ! -d "${VPX_INSTALL}" ]; then
+	cd "${BUILD_DIR}"
+	if [ ! -d "libvpx-src" ]; then
+		echo "Cloning libvpx v1.14.1..."
+		git clone --depth 1 --branch v1.14.1 https://chromium.googlesource.com/webm/libvpx libvpx-src
+	fi
+	cd libvpx-src
+	
+	echo "Configuring libvpx..."
+	./configure \
+		--prefix="${VPX_INSTALL}" \
+		--disable-shared \
+		--enable-static \
+		--disable-examples \
+		--disable-tools \
+		--disable-docs \
+		--disable-unit-tests \
+		--enable-vp8 \
+		--enable-vp9 \
+		--enable-vp9-highbitdepth \
+		--as=yasm
+	
+	echo "Building libvpx..."
+	make -j$(sysctl -n hw.ncpu)
+	
+	echo "Installing libvpx to ${VPX_INSTALL}..."
+	make install
+	
+	cd "${BUILD_DIR}/gstreamer"
+	echo "libvpx build complete!"
+else
+	echo "libvpx already built at ${VPX_INSTALL}"
+fi
+
+# Expose libvpx via PKG_CONFIG_PATH
+export PKG_CONFIG_PATH="${VPX_INSTALL}/lib/pkgconfig:${PKG_CONFIG_PATH}"
+echo "Added libvpx to PKG_CONFIG_PATH: ${VPX_INSTALL}/lib/pkgconfig"
+
+# Build openh264 separately for H.264 support
+OPENH264_INSTALL="${BUILD_DIR}/openh264-install"
+echo ""
+echo "Step 3d: Building openh264 from source..."
+if [ ! -d "${OPENH264_INSTALL}" ]; then
+	cd "${BUILD_DIR}"
+	if [ ! -d "openh264-src" ]; then
+		echo "Cloning openh264 v2.4.1..."
+		git clone --depth 1 --branch v2.4.1 https://github.com/cisco/openh264.git openh264-src
+	fi
+	cd openh264-src
+	
+	echo "Building openh264..."
+	make -j$(sysctl -n hw.ncpu) \
+		PREFIX="${OPENH264_INSTALL}" \
+		ENABLESHARED=No \
+		BUILDTYPE=Release
+	
+	echo "Installing openh264 to ${OPENH264_INSTALL}..."
+	make install PREFIX="${OPENH264_INSTALL}"
+	
+	cd "${BUILD_DIR}/gstreamer"
+	echo "openh264 build complete!"
+else
+	echo "openh264 already built at ${OPENH264_INSTALL}"
+fi
+
+# Expose openh264 via PKG_CONFIG_PATH
+export PKG_CONFIG_PATH="${OPENH264_INSTALL}/lib/pkgconfig:${PKG_CONFIG_PATH}"
+echo "Added openh264 to PKG_CONFIG_PATH: ${OPENH264_INSTALL}/lib/pkgconfig"
+
 # Build libwebsockets separately with CMake before Meson configure
 # This avoids Meson/CMake integration issues and ensures a clean static build
 LWS_INSTALL="${BUILD_DIR}/libwebsockets-install"
@@ -309,7 +382,7 @@ meson setup builddir \
 	-Dglib:tests=false \
 	-Djson-glib:tests=false \
 	-Dpcre2:test=false \
-	-Dgstreamer-1.0:libav=disabled \
+	-Dgstreamer-1.0:libav=enabled \
 	-Dgstreamer-1.0:ugly=disabled \
 	-Dgstreamer-1.0:ges=disabled \
 	-Dgstreamer-1.0:devtools=disabled \
@@ -344,6 +417,8 @@ meson setup builddir \
 	-Dgst-plugins-bad:srtp=enabled \
 	-Dgst-plugins-bad:videoparsers=enabled \
 	-Dgst-plugins-bad:aom=enabled \
+	-Dgst-plugins-bad:openh264=enabled \
+	-Dgst-plugins-good:vpx=enabled \
 	-Dlibnice=enabled \
 	-Dlibnice:crypto-library=openssl \
 	-Dlibnice:gstreamer=enabled \
