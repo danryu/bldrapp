@@ -126,11 +126,12 @@ int main(int argc, char* argv[]) {
   GstElement* videotestsrc = gst_element_factory_make("videotestsrc", nullptr);
   GstElement* videoconvert_send = gst_element_factory_make("videoconvert", nullptr);
   GstElement* av1enc = gst_element_factory_make("av1enc", nullptr);
+  GstElement* av1parse = gst_element_factory_make("av1parse", nullptr);
   GstElement* audiotestsrc = gst_element_factory_make("audiotestsrc", nullptr);
   GstElement* opusenc = gst_element_factory_make("opusenc", nullptr);
 
   if (!pipeline || !jitsibin || !videoconvert || !glupload || !sink ||
-      !videotestsrc || !videoconvert_send || !av1enc || !audiotestsrc || !opusenc) {
+      !videotestsrc || !videoconvert_send || !av1enc || !av1parse || !audiotestsrc || !opusenc) {
     g_printerr("Failed to create one or more GStreamer elements.\n");
     return 1;
   }
@@ -152,7 +153,7 @@ int main(int argc, char* argv[]) {
                    // receive path
                    videoconvert, glupload, sink,
                    // send path
-                   videotestsrc, videoconvert_send, av1enc,
+                   videotestsrc, videoconvert_send, av1enc, av1parse,
                    audiotestsrc, opusenc,
                    NULL);
 
@@ -173,12 +174,12 @@ int main(int argc, char* argv[]) {
                "lag-in-frames", 0,
                NULL);
 
-  if (!gst_element_link_many(videotestsrc, videoconvert_send, av1enc, NULL)) {
-    g_printerr("Failed to link videotestsrc -> videoconvert -> av1enc\n");
+  if (!gst_element_link_many(videotestsrc, videoconvert_send, av1enc, av1parse, NULL)) {
+    g_printerr("Failed to link videotestsrc -> videoconvert -> av1enc -> av1parse\n");
     return 1;
   }
-  if (!gst_element_link_pads(av1enc, NULL, jitsibin, "video_sink")) {
-    g_printerr("Failed to link av1enc -> jitsibin video_sink\n");
+  if (!gst_element_link_pads(av1parse, NULL, jitsibin, "video_sink")) {
+    g_printerr("Failed to link av1parse -> jitsibin video_sink\n");
     return 1;
   }
   if (!gst_element_link_many(audiotestsrc, opusenc, NULL)) {
