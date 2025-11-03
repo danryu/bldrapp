@@ -28,6 +28,7 @@ if [ "${INSTALL_DEPS}" = true ]; then
 	# brew install cairo jpeg libpng opus libvpx jack speex flac lame \
 	# 	mpg123 libdv libnice json-glib libsoup openssl srtp \
 	# 	libde265 aom webp libsndfile srt curl
+	brew install rust
 else
 	echo "Skipping Homebrew installs. Ensure meson, ninja, pkg-config, python3, bison, flex are installed."
 fi
@@ -39,7 +40,7 @@ if [ ! -d "gstreamer" ]; then
 	git clone https://gitlab.freedesktop.org/gstreamer/gstreamer.git
 	cd gstreamer
 	# Use a stable release
-	git checkout 1.24.9 
+	git checkout 1.26.7
 	cd ..
 else
 	echo "GStreamer repository already exists, skipping clone"
@@ -78,8 +79,148 @@ fi
 # Set up environment for Qt6 (STATIC)
 export PKG_CONFIG_PATH="${QT_PATH}/lib/pkgconfig"
 export PKG_CONFIG_LIBDIR="${QT_PATH}/lib/pkgconfig"
-export PATH="${QT_PATH}/bin:${QT_PATH}/libexec:${PATH}"
+export PATH="/Users/dan/.cargo/bin:${QT_PATH}/bin:${QT_PATH}/libexec:${PATH}"
 export CMAKE_PREFIX_PATH="${QT_PATH}"
+export MACOSX_DEPLOYMENT_TARGET="13.3"
+# Ensure Rust and C/C++ agree on the deployment target and link system zlib (no Homebrew)
+export RUSTFLAGS="-C link-arg=-mmacosx-version-min=13.3 -C link-arg=-lz ${RUSTFLAGS}"
+export CFLAGS="-mmacosx-version-min=13.3 ${CFLAGS}"
+export CXXFLAGS="-mmacosx-version-min=13.3 ${CXXFLAGS}"
+
+# Build OpenSSL separately with CMake before Meson configure
+# This provides static SSL libraries for libwebsockets and libnice
+OPENSSL_INSTALL="${BUILD_DIR}/openssl-install"
+echo ""
+echo "Step 3a: Building OpenSSL from source..."
+if [ ! -d "${OPENSSL_INSTALL}" ]; then
+	cd "${BUILD_DIR}"
+	if [ ! -d "openssl-src" ]; then
+		echo "Cloning OpenSSL 3.0.15..."
+		git clone --depth 1 --branch openssl-3.0.15 https://github.com/openssl/openssl.git openssl-src
+	fi
+	cd openssl-src
+	
+	echo "Configuring OpenSSL..."
+	./Configure darwin64-arm64-cc \
+		--prefix="${OPENSSL_INSTALL}" \
+		--openssldir="${OPENSSL_INSTALL}/ssl" \
+		no-shared \
+		no-tests \
+		-mmacosx-version-min="${MACOSX_DEPLOYMENT_TARGET:-13.3}"
+	
+	echo "Building OpenSSL..."
+	make -j$(sysctl -n hw.ncpu)
+	
+	echo "Installing OpenSSL to ${OPENSSL_INSTALL}..."
+	make install_sw
+	
+	cd "${BUILD_DIR}/gstreamer"
+	echo "OpenSSL build complete!"
+else
+	echo "OpenSSL already built at ${OPENSSL_INSTALL}"
+fi
+
+# Expose OpenSSL via PKG_CONFIG_PATH
+export PKG_CONFIG_PATH="${OPENSSL_INSTALL}/lib/pkgconfig:${PKG_CONFIG_PATH}"
+echo "Added OpenSSL to PKG_CONFIG_PATH: ${OPENSSL_INSTALL}/lib/pkgconfig"
+
+# Build AOM separately with CMake before Meson configure
+# This provides static AV1 codec support
+AOM_INSTALL="${BUILD_DIR}/aom-install"
+echo ""
+echo "Step 3b: Building AOM from source..."
+if [ ! -d "${AOM_INSTALL}" ]; then
+	cd "${BUILD_DIR}"
+	if [ ! -d "aom-src" ]; then
+		echo "Cloning AOM v3.11.0..."
+		git clone --depth 1 --branch v3.11.0 https://aomedia.googlesource.com/aom aom-src
+	fi
+	cd aom-src
+	
+	echo "Configuring AOM with CMake..."
+	cmake -B build \
+		-DCMAKE_BUILD_TYPE=Release \
+		-DCMAKE_INSTALL_PREFIX="${AOM_INSTALL}" \
+		-DCMAKE_OSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-13.3}" \
+		-DBUILD_SHARED_LIBS=OFF \
+		-DENABLE_TESTS=OFF \
+		-DENABLE_EXAMPLES=OFF \
+		-DENABLE_DOCS=OFF \
+		-DENABLE_TOOLS=OFF
+	
+	echo "Building AOM..."
+	cmake --build build --config Release -j$(sysctl -n hw.ncpu)
+	
+	echo "Installing AOM to ${AOM_INSTALL}..."
+	cmake --install build
+	
+	cd "${BUILD_DIR}/gstreamer"
+	echo "AOM build complete!"
+else
+	echo "AOM already built at ${AOM_INSTALL}"
+fi
+
+# Expose AOM via PKG_CONFIG_PATH
+export PKG_CONFIG_PATH="${AOM_INSTALL}/lib/pkgconfig:${PKG_CONFIG_PATH}"
+echo "Added AOM to PKG_CONFIG_PATH: ${AOM_INSTALL}/lib/pkgconfig"
+
+# Build libwebsockets separately with CMake before Meson configure
+# This avoids Meson/CMake integration issues and ensures a clean static build
+LWS_INSTALL="${BUILD_DIR}/libwebsockets-install"
+echo ""
+echo "Step 3c: Building libwebsockets from source..."
+if [ ! -d "${LWS_INSTALL}" ]; then
+	cd "${BUILD_DIR}"
+	if [ ! -d "libwebsockets-src" ]; then
+		echo "Cloning libwebsockets v4.3.6..."
+		git clone --depth 1 --branch v4.3.6 https://github.com/warmcat/libwebsockets.git libwebsockets-src
+	fi
+	cd libwebsockets-src
+	
+	echo "Configuring libwebsockets with CMake..."
+	cmake -B build \
+	  	-DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+		-DCMAKE_BUILD_TYPE=Release \
+		-DCMAKE_INSTALL_PREFIX="${LWS_INSTALL}" \
+		-DCMAKE_OSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-13.3}" \
+		-DOPENSSL_ROOT_DIR="${OPENSSL_INSTALL}" \
+		-DOPENSSL_INCLUDE_DIR="${OPENSSL_INSTALL}/include" \
+		-DOPENSSL_CRYPTO_LIBRARY="${OPENSSL_INSTALL}/lib/libcrypto.a" \
+		-DOPENSSL_SSL_LIBRARY="${OPENSSL_INSTALL}/lib/libssl.a" \
+		-DLWS_WITH_SHARED=OFF \
+		-DLWS_WITH_STATIC=ON \
+		-DLWS_WITHOUT_TESTAPPS=ON \
+		-DLWS_WITHOUT_TEST_SERVER=ON \
+		-DLWS_WITHOUT_TEST_PING=ON \
+		-DLWS_WITHOUT_TEST_CLIENT=ON \
+		-DLWS_WITH_SSL=ON \
+		-DLWS_OPENSSL_SUPPORT=ON \
+		-DLWS_WITH_ZLIB=OFF \
+		-DLWS_WITHOUT_EXTENSIONS=ON \
+		-DLWS_IPV6=ON \
+		-DLWS_UNIX_SOCK=ON \
+		-DLWS_WITH_LIBUV=OFF \
+		-DLWS_WITH_LIBEVENT=OFF \
+		-DLWS_WITH_GLIB=OFF \
+		-DLWS_WITH_HTTP2=OFF \
+		-DLWS_WITH_MINIMAL_EXAMPLES=OFF \
+		-DLWS_LINK_TESTAPPS_DYNAMIC=OFF
+	
+	echo "Building libwebsockets..."
+	cmake --build build --config Release -j$(sysctl -n hw.ncpu)
+	
+	echo "Installing libwebsockets to ${LWS_INSTALL}..."
+	cmake --install build
+	
+	cd "${BUILD_DIR}/gstreamer"
+	echo "libwebsockets build complete!"
+else
+	echo "libwebsockets already built at ${LWS_INSTALL}"
+fi
+
+# Expose libwebsockets via PKG_CONFIG_PATH
+export PKG_CONFIG_PATH="${LWS_INSTALL}/lib/pkgconfig:${PKG_CONFIG_PATH}"
+echo "Added libwebsockets to PKG_CONFIG_PATH: ${LWS_INSTALL}/lib/pkgconfig"
 
 # Ensure our local wraps are installed for fallbacks/custom subprojects
 if [ -f "${BUILD_DIR}/wraps/proxy-libintl.wrap" ]; then
@@ -91,11 +232,21 @@ if [ -f "${BUILD_DIR}/wraps/gstjitsimeet.wrap" ]; then
 	cp -f "${BUILD_DIR}/wraps/gstjitsimeet.wrap" "subprojects/gstjitsimeet.wrap"
 fi
 
+
 # Link local gstjitsimeet directory into subprojects to avoid any VCS/network usage
 GSTJ_LOCAL="/Users/dan/code/gstjitsimeet"
 if [ -d "${GSTJ_LOCAL}" ] && [ ! -d "subprojects/gstjitsimeet" ]; then
 	ln -s "${GSTJ_LOCAL}" "subprojects/gstjitsimeet"
 fi
+
+# # Insert libwebsockets CMake subproject build into gstjitsimeet's meson.build after project() call
+# if [ -f "${BUILD_DIR}/wraps/packagefiles/gstjitsimeet/meson.build.insert" ] && [ -f "subprojects/gstjitsimeet/meson.build" ]; then
+# 	if ! grep -q "cmake.subproject('libwebsockets'" "subprojects/gstjitsimeet/meson.build" 2>/dev/null; then
+# 		# Find the line with add_project_arguments (line 6) and insert after it
+# 		sed -i.bak '6 r '"${BUILD_DIR}/wraps/packagefiles/gstjitsimeet/meson.build.insert" "subprojects/gstjitsimeet/meson.build"
+# 		rm -f "subprojects/gstjitsimeet/meson.build.bak"
+# 	fi
+# fi
 
 # If gstjitsimeet's local coop install exists, expose its pkg-config path
 GSTJ_COOP_PC="$(pwd)/subprojects/gstjitsimeet/deps/coop-install/lib/pkgconfig"
@@ -103,7 +254,7 @@ if [ -d "${GSTJ_COOP_PC}" ]; then
 	export PKG_CONFIG_PATH="${GSTJ_COOP_PC}:${PKG_CONFIG_PATH}"
 fi
 
-# Download proxy-libintl; gstjitsimeet is provided locally via symlink
+# Download proxy-libintl; gstjitsimeet is provided locally via symlink, libwebsockets pre-built
 meson subprojects download proxy-libintl || true
 
 # Ensure proxy-libintl overrides dependency('intl') even if upstream changes
@@ -167,8 +318,10 @@ meson setup builddir \
 	-Dgstreamer-1.0:rtsp_server=disabled \
 	-Dgst-full=enabled \
 	-Dgst-full-target-type=static_library \
-	-Dgst-full-libraries=gstreamer-video-1.0,gstreamer-audio-1.0,gstreamer-app-1.0,gstreamer-gl-1.0,gstreamer-base-1.0,gstreamer-tag-1.0,gstreamer-pbutils-1.0,gstreamer-rtp-1.0 \
+	-Dgst-full-libraries=gstreamer-video-1.0,gstreamer-audio-1.0,gstreamer-app-1.0,gstreamer-gl-1.0,gstreamer-base-1.0,gstreamer-tag-1.0,gstreamer-pbutils-1.0,gstreamer-rtp-1.0,gstreamer-codecparsers-1.0 \
 	-Dgstreamer-1.0:tools=disabled \
+	-Drs=enabled \
+	-Dgst-plugins-rs:rtp=enabled \
 	-Dgst-plugins-base:gl=enabled \
 	-Dgst-plugins-base:playback=enabled \
 	-Dgst-plugins-base:app=enabled \
@@ -241,13 +394,61 @@ fi
 echo "Looking for libgstreamer-full-1.0.a under ${INSTALL_PREFIX}/lib..."
 GST_FULL_A="${INSTALL_PREFIX}/lib/libgstreamer-full-1.0.a"
 if [ -f "${GST_FULL_A}" ]; then
-	echo "Found static lib: ${GST_FULL_A}"
-	echo "Size: $(ls -lh "${GST_FULL_A}" | awk '{print $5}')"
+    echo "Found static lib: ${GST_FULL_A}"
+    echo "Size: $(ls -lh "${GST_FULL_A}" | awk '{print $5}')"
 else
-	echo "ERROR: libgstreamer-full-1.0.a not found."
-	echo "Available libraries:"
-	(ls -lh "${INSTALL_PREFIX}/lib"/*.a 2>/dev/null || true)
-	exit 1
+    echo "ERROR: libgstreamer-full-1.0.a not found."
+    echo "Available libraries:"
+    (ls -lh "${INSTALL_PREFIX}/lib"/*.a 2>/dev/null || true)
+    exit 1
+fi
+
+# Static verification without gst-inspect: search archives for element names
+echo ""
+echo "Verifying AV1 presence using strings/nm on static archives..."
+
+PLUG_DIR="${INSTALL_PREFIX}/lib/gstreamer-1.0"
+ARCHIVES=("${GST_FULL_A}")
+if [ -d "${PLUG_DIR}" ]; then
+    while IFS= read -r -d '' f; do ARCHIVES+=("$f"); done < <(find "${PLUG_DIR}" -name '*.a' -print0 2>/dev/null || true)
+fi
+
+check_in_archives() {
+    local pattern="$1"
+    local found=false
+    for a in "${ARCHIVES[@]}"; do
+        if strings -a "$a" | grep -Eiq "$pattern"; then
+            echo "Found '$pattern' in $a"
+            found=true
+        else
+            # Fallback to nm symbol scan (best effort)
+            if nm -gU "$a" 2>/dev/null | grep -Eiq "$pattern"; then
+                echo "Found symbol matching '$pattern' in $a (nm)"
+                found=true
+            fi
+        fi
+    done
+    if [ "$found" != true ]; then
+        echo "MISSING: '$pattern' not present in any archive"
+        return 1
+    fi
+    return 0
+}
+
+MISSING=0
+check_in_archives 'rtpav1depay' || MISSING=1
+check_in_archives 'rtpav1pay' || true
+check_in_archives 'av1parse' || MISSING=1
+check_in_archives 'av1enc' || MISSING=1
+check_in_archives 'av1dec' || true
+
+if [ "$MISSING" -ne 0 ]; then
+    echo ""
+    echo "ERROR: One or more required AV1 components missing from static archives."
+    echo "Ensure: -Dgst-plugins-good:rtp=enabled, -Dgst-plugins-bad:videoparsers=enabled, -Dgst-plugins-bad:aom=enabled, and gstreamer-codecparsers included in gst-full libraries."
+    exit 1
+else
+    echo "AV1 RTP depay/parse/enc present in static archives."
 fi
 
 echo ""
