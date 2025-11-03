@@ -1,4 +1,3 @@
 [wrap-file]
 directory=gstjitsimeet
-
-
+patch_directory=gstjitsimeet

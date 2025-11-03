@@ -48,6 +48,7 @@ fi
 
 
 # Step 3b: Install Qt6 pkg-config files from repository templates
+# Seems to be necessary for qt6 detection in Gstreamer meson build.
 echo ""
 echo "Step 3b: Installing Qt6 pkg-config files (Core/Gui/Qml/Quick)..."
 QT_VER_PKG="6.5.7"
@@ -74,7 +75,6 @@ if [ -d "builddir" ]; then
 	echo "Removing previous build directory..."
 	rm -rf builddir
 fi
-
 
 # Set up environment for Qt6 (STATIC)
 export PKG_CONFIG_PATH="${QT_PATH}/lib/pkgconfig"
@@ -311,15 +311,6 @@ GSTJ_LOCAL="/Users/dan/code/gstjitsimeet"
 if [ -d "${GSTJ_LOCAL}" ] && [ ! -d "subprojects/gstjitsimeet" ]; then
 	ln -s "${GSTJ_LOCAL}" "subprojects/gstjitsimeet"
 fi
-
-# # Insert libwebsockets CMake subproject build into gstjitsimeet's meson.build after project() call
-# if [ -f "${BUILD_DIR}/wraps/packagefiles/gstjitsimeet/meson.build.insert" ] && [ -f "subprojects/gstjitsimeet/meson.build" ]; then
-# 	if ! grep -q "cmake.subproject('libwebsockets'" "subprojects/gstjitsimeet/meson.build" 2>/dev/null; then
-# 		# Find the line with add_project_arguments (line 6) and insert after it
-# 		sed -i.bak '6 r '"${BUILD_DIR}/wraps/packagefiles/gstjitsimeet/meson.build.insert" "subprojects/gstjitsimeet/meson.build"
-# 		rm -f "subprojects/gstjitsimeet/meson.build.bak"
-# 	fi
-# fi
 
 # If gstjitsimeet's local coop install exists, expose its pkg-config path
 GSTJ_COOP_PC="$(pwd)/subprojects/gstjitsimeet/deps/coop-install/lib/pkgconfig"
