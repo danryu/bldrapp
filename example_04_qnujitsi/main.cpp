@@ -1,3 +1,23 @@
+//
+// qnujitsi main
+//
+// This app demonstrates sending and receiving media to a Jitsi Meet conference
+// using the custom `jitsibin` GStreamer element. Video is rendered via
+// `qml6glsink` into a QML item. The receive pipeline is built dynamically to
+// accommodate whatever codec the remote sends (AV1, VP9, VP8, H264), and is
+// deliberately designed to be resilient to corrupt frames and transient stalls.
+//
+// Key concepts and decisions:
+// - We insert two leaky queues around decode to isolate the network from the
+//   decoder and the decoder from the renderer. This prevents stalls from
+//   propagating back and freezing the pipeline.
+// - We continuously drain the GstBus on a modest cadence (~60 Hz) with a
+//   per-tick cap to avoid queue overflow without spinning the CPU.
+// - A decoded-frame watchdog requests a new keyframe if no decoded buffers
+//   arrive for ~700 ms, which recovers the decoder state after corruption.
+// - Upstream keyframe requests are sent via the pre-decode queue (preferred)
+//   or directly to jitsibin as a fallback, throttled to ≤2/sec.
+//
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQuickWindow>
@@ -31,6 +51,8 @@ private:
   GstElement* pipeline_;
 };
 
+// Context carries shared element references and timing state used by
+// dynamic pad handlers and timers to implement resilience and monitoring.
 struct Context {
   GstElement* pipeline {nullptr};
   GstElement* videoconvert {nullptr};
@@ -42,6 +64,10 @@ struct Context {
   GstClockTime last_video_buf_ts {0};
 };
 
+// decodebin exposes pads depending on the detected codec. For video streams
+// we insert a downstream-leaky queue before videoconvert to prevent render
+// stalls from backing up decode, and we probe its src pad to observe decoded
+// buffer flow for the watchdog.
 static void decodebin_pad_added(GstElement* /*decodebin*/, GstPad* pad, gpointer user_data) {
   auto* self = static_cast<Context*>(user_data);
   if (!self || !self->videoconvert || !self->pipeline) return;
@@ -95,6 +121,10 @@ static void decodebin_pad_added(GstElement* /*decodebin*/, GstPad* pad, gpointer
   }
 }
 
+// When jitsibin exposes a new RTP stream, we create a pre-decode downstream-
+// leaky queue to isolate the live network from decode, and a decodebin to
+// handle whatever codec arrives. The pre-decode queue is also used as the
+// preferred target for upstream force-key-unit events (PLI/FIR).
 static void jitsibin_pad_added(GstElement* /*jitsibin*/, GstPad* pad, gpointer user_data) {
   auto* self = static_cast<Context*>(user_data);
   if (!self || !self->pipeline) return;
@@ -133,6 +163,8 @@ static void jitsibin_pad_added(GstElement* /*jitsibin*/, GstPad* pad, gpointer u
   }
 }
 
+// Surface completion from jitsibin by posting EOS so the app can exit
+// gracefully (or react however it chooses).
 static void jitsibin_finished(GstElement* /*jitsibin*/, gboolean success, gpointer user_data) {
   g_print("finished success=%d\n", success);
   auto* self = static_cast<Context*>(user_data);
@@ -144,6 +176,8 @@ static void jitsibin_finished(GstElement* /*jitsibin*/, gboolean success, gpoint
   }
 }
 
+// Application entry: builds the pipeline, wires Qt/QML and starts timers for
+// bus draining and keyframe watchdog.
 int main(int argc, char* argv[]) {
   const char* host = nullptr;
   const char* room = nullptr;
@@ -156,7 +190,8 @@ int main(int argc, char* argv[]) {
   }
 
   gst_init(&argc, &argv);
-  gst_init_static_plugins();  // Register static plugins
+  // Register static plugins compiled into the libgstreamer-full build
+  gst_init_static_plugins();
 
 
 
@@ -190,11 +225,11 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
-  // Set jitsibin properties
+  // Configure jitsibin (conference details, codec preferences, and behavior)
   g_object_set(G_OBJECT(jitsibin),
                "server", host,
                "room", room,
-               "nick", "qjsink_user",
+               "nick", "qnujitsi_user",
                // Ensure sender uses AV1 so jitsibin selects rtpav1pay
                "video-codec", 4, /* Av1 enum value */
                "receive-limit", 3,
@@ -202,6 +237,8 @@ int main(int argc, char* argv[]) {
                "insecure", TRUE,
                NULL);
 
+  // Add elements to the pipeline (dynamic receive path elements are added
+  // later when pads appear)
   gst_bin_add_many(GST_BIN(pipeline),
                    jitsibin,
                    // receive path
@@ -265,10 +302,13 @@ int main(int argc, char* argv[]) {
   // Start the pipeline in the render thread
   root->scheduleRenderJob(new SetPlaying(pipeline), QQuickWindow::BeforeSynchronizingStage);
 
-  // Drain the bus in the Qt event loop and request keyframes on decode errors
+  // Drain the bus periodically to prevent queue overflow. On decode errors,
+  // request an upstream keyframe (throttled) to recover decoder state.
   GstBus* bus = gst_element_get_bus(pipeline);
   QTimer* busTimer = new QTimer(&app);
   QObject::connect(busTimer, &QTimer::timeout, [&](){
+    int processed = 0;
+    constexpr int kMaxPerTick = 200; // cap to keep CPU in check
     for (;;) {
       GstMessage* msg = gst_bus_pop(bus);
       if (!msg) break;
@@ -308,9 +348,10 @@ int main(int argc, char* argv[]) {
           break;
       }
       gst_message_unref(msg);
+      if (++processed >= kMaxPerTick) break;
     }
   });
-  busTimer->start(0);
+  busTimer->start(16); // ~60Hz is enough to keep the bus drained
 
   // Watchdog: if no decoded frames observed for a while, request a keyframe upstream
   ctx.last_video_buf_ts = gst_util_get_timestamp();
