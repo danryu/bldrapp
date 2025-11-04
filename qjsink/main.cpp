@@ -3,9 +3,11 @@
 #include <QQuickWindow>
 #include <QQuickItem>
 #include <QRunnable>
+#include <QTimer>
 
 #include <gst/gst.h>
 #include <gst/video/video.h>
+#include <gst/video/video-event.h>
 
 // Forward declare static plugin initialization function
 extern "C" void gst_init_static_plugins(void);
@@ -32,11 +34,17 @@ private:
 struct Context {
   GstElement* pipeline {nullptr};
   GstElement* videoconvert {nullptr};
+  // queue inserted between jitsibin and decodebin to isolate decoder; used to send upstream events
+  GstElement* predecode_queue {nullptr};
+  GstClockTime last_keyunit_request_ts {0};
+  // queue between decodebin and videoconvert to monitor flow
+  GstElement* postdecode_queue {nullptr};
+  GstClockTime last_video_buf_ts {0};
 };
 
 static void decodebin_pad_added(GstElement* /*decodebin*/, GstPad* pad, gpointer user_data) {
   auto* self = static_cast<Context*>(user_data);
-  if (!self || !self->videoconvert) return;
+  if (!self || !self->videoconvert || !self->pipeline) return;
 
   GstCaps* caps = gst_pad_get_current_caps(pad);
   bool is_video = false;
@@ -50,33 +58,79 @@ static void decodebin_pad_added(GstElement* /*decodebin*/, GstPad* pad, gpointer
   }
   if (!is_video) return;
 
-  GstPad* sinkpad = gst_element_get_static_pad(self->videoconvert, "sink");
-  if (!sinkpad) return;
-  if (gst_pad_is_linked(sinkpad)) { gst_object_unref(sinkpad); return; }
+  GstElement* q = gst_element_factory_make("queue", nullptr);
+  if (!q) { g_printerr("Failed to create queue\n"); return; }
+  g_object_set(q,
+               "leaky", 2,
+               "max-size-buffers", 5,
+               "max-size-bytes", 0,
+               "max-size-time", (guint64)0,
+               NULL);
 
-  GstPadLinkReturn linkret = gst_pad_link(pad, sinkpad);
-  gst_object_unref(sinkpad);
-  g_print("decodebin -> videoconvert link %s\n", linkret == GST_PAD_LINK_OK ? "OK" : "FAILED");
+  gst_bin_add(GST_BIN(self->pipeline), q);
+  gst_element_sync_state_with_parent(q);
+
+  // remember and probe for buffer flow
+  self->postdecode_queue = q;
+  GstPad* qsrc = gst_element_get_static_pad(q, "src");
+  if (qsrc) {
+    gst_pad_add_probe(qsrc, GST_PAD_PROBE_TYPE_BUFFER,
+      [](GstPad* /*pad*/, GstPadProbeInfo* /*info*/, gpointer user_data) -> GstPadProbeReturn {
+        auto* ctx = static_cast<Context*>(user_data);
+        ctx->last_video_buf_ts = gst_util_get_timestamp();
+        return GST_PAD_PROBE_OK;
+      }, self, NULL);
+    gst_object_unref(qsrc);
+  }
+
+  GstPad* qsink = gst_element_get_static_pad(q, "sink");
+  if (!qsink) return;
+  if (gst_pad_is_linked(qsink)) { gst_object_unref(qsink); return; }
+  GstPadLinkReturn linkret = gst_pad_link(pad, qsink);
+  gst_object_unref(qsink);
+  g_print("decodebin -> queue link %s\n", linkret == GST_PAD_LINK_OK ? "OK" : "FAILED");
+
+  if (!gst_element_link(q, self->videoconvert)) {
+    g_printerr("Failed to link queue -> videoconvert\n");
+  }
 }
 
 static void jitsibin_pad_added(GstElement* /*jitsibin*/, GstPad* pad, gpointer user_data) {
   auto* self = static_cast<Context*>(user_data);
   if (!self || !self->pipeline) return;
 
-  // Create a decodebin for whatever codec arrives
+  // Create a leaky queue and a decodebin for whatever codec arrives
+  GstElement* q = gst_element_factory_make("queue", nullptr);
   GstElement* decodebin = gst_element_factory_make("decodebin", nullptr);
-  if (!decodebin) { g_printerr("Failed to create decodebin\n"); return; }
+  if (!q || !decodebin) { g_printerr("Failed to create queue/decodebin\n"); return; }
 
-  gst_bin_add(GST_BIN(self->pipeline), decodebin);
+  g_object_set(q,
+               "leaky", 2,
+               "max-size-buffers", 50,
+               "max-size-bytes", 0,
+               "max-size-time", (guint64)0,
+               NULL);
+
+  gst_bin_add_many(GST_BIN(self->pipeline), q, decodebin, NULL);
   g_signal_connect(decodebin, "pad-added", GCallback(decodebin_pad_added), self);
+
+  gst_element_sync_state_with_parent(q);
   gst_element_sync_state_with_parent(decodebin);
 
-  // Link jitsibin pad -> decodebin sink
-  GstPad* dbinsink = gst_element_get_static_pad(decodebin, "sink");
-  if (!dbinsink) return;
-  GstPadLinkReturn linkret = gst_pad_link(pad, dbinsink);
-  gst_object_unref(dbinsink);
-  g_print("jitsibin -> decodebin link %s\n", linkret == GST_PAD_LINK_OK ? "OK" : "FAILED");
+  // store for upstream keyframe requests
+  self->predecode_queue = q;
+
+  // Link jitsibin pad -> queue sink
+  GstPad* qsink = gst_element_get_static_pad(q, "sink");
+  if (!qsink) return;
+  GstPadLinkReturn linkret = gst_pad_link(pad, qsink);
+  gst_object_unref(qsink);
+  g_print("jitsibin -> queue link %s\n", linkret == GST_PAD_LINK_OK ? "OK" : "FAILED");
+
+  // queue -> decodebin
+  if (!gst_element_link(q, decodebin)) {
+    g_printerr("Failed to link queue -> decodebin\n");
+  }
 }
 
 static void jitsibin_finished(GstElement* /*jitsibin*/, gboolean success, gpointer user_data) {
@@ -211,10 +265,83 @@ int main(int argc, char* argv[]) {
   // Start the pipeline in the render thread
   root->scheduleRenderJob(new SetPlaying(pipeline), QQuickWindow::BeforeSynchronizingStage);
 
+  // Drain the bus in the Qt event loop and request keyframes on decode errors
+  GstBus* bus = gst_element_get_bus(pipeline);
+  QTimer* busTimer = new QTimer(&app);
+  QObject::connect(busTimer, &QTimer::timeout, [&](){
+    for (;;) {
+      GstMessage* msg = gst_bus_pop(bus);
+      if (!msg) break;
+
+      switch (GST_MESSAGE_TYPE(msg)) {
+        case GST_MESSAGE_ERROR: {
+          GError* err = nullptr; gchar* dbg = nullptr;
+          gst_message_parse_error(msg, &err, &dbg);
+          g_printerr("ERROR from %s: %s\n", GST_OBJECT_NAME(msg->src), err ? err->message : "unknown");
+
+          if (err && err->domain == GST_STREAM_ERROR && err->code == GST_STREAM_ERROR_DECODE) {
+            const GstClockTime now = gst_util_get_timestamp();
+            // throttle to avoid spamming RTCP: at most twice per second
+            if (now - ctx.last_keyunit_request_ts >= 500 * GST_MSECOND) {
+              gboolean sent = FALSE;
+              if (ctx.predecode_queue) {
+                auto* ev = gst_video_event_new_upstream_force_key_unit(GST_CLOCK_TIME_NONE, TRUE, 0);
+                sent = gst_element_send_event(ctx.predecode_queue, ev);
+                g_print("Requested keyframe via predecode queue: %s\n", sent ? "OK" : "FAILED");
+              }
+              if (!sent) {
+                auto* ev2 = gst_video_event_new_upstream_force_key_unit(GST_CLOCK_TIME_NONE, TRUE, 0);
+                sent = gst_element_send_event(jitsibin, ev2);
+                g_print("Requested keyframe via jitsibin: %s\n", sent ? "OK" : "FAILED");
+              }
+              if (sent) ctx.last_keyunit_request_ts = now;
+            }
+          }
+
+          g_clear_error(&err); g_free(dbg);
+          break;
+        }
+        case GST_MESSAGE_EOS:
+          app.quit();
+          break;
+        default:
+          break;
+      }
+      gst_message_unref(msg);
+    }
+  });
+  busTimer->start(0);
+
+  // Watchdog: if no decoded frames observed for a while, request a keyframe upstream
+  ctx.last_video_buf_ts = gst_util_get_timestamp();
+  QTimer* watchdogTimer = new QTimer(&app);
+  QObject::connect(watchdogTimer, &QTimer::timeout, [&](){
+    const GstClockTime now = gst_util_get_timestamp();
+    // if we haven't seen a decoded buffer for 700ms, ask for a keyframe
+    if (now - ctx.last_video_buf_ts > 700 * GST_MSECOND) {
+      if (now - ctx.last_keyunit_request_ts >= 500 * GST_MSECOND) {
+        gboolean sent = FALSE;
+        if (ctx.predecode_queue) {
+          auto* ev = gst_video_event_new_upstream_force_key_unit(GST_CLOCK_TIME_NONE, TRUE, 0);
+          sent = gst_element_send_event(ctx.predecode_queue, ev);
+          g_print("Watchdog: requested keyframe via predecode queue: %s\n", sent ? "OK" : "FAILED");
+        }
+        if (!sent) {
+          auto* ev2 = gst_video_event_new_upstream_force_key_unit(GST_CLOCK_TIME_NONE, TRUE, 0);
+          sent = gst_element_send_event(jitsibin, ev2);
+          g_print("Watchdog: requested keyframe via jitsibin: %s\n", sent ? "OK" : "FAILED");
+        }
+        if (sent) ctx.last_keyunit_request_ts = now;
+      }
+    }
+  });
+  watchdogTimer->start(200);
+
   int ret = app.exec();
 
   gst_element_set_state(pipeline, GST_STATE_NULL);
   gst_object_unref(pipeline);
+  if (bus) gst_object_unref(bus);
   gst_deinit();
   return ret;
 }
