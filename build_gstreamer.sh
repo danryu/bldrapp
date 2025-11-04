@@ -90,6 +90,7 @@ export CXXFLAGS="-mmacosx-version-min=13.3 ${CXXFLAGS}"
 ##############################################################################################################################
 # Build OpenSSL separately with CMake before Meson configure
 # This provides static SSL libraries for libwebsockets and libnice
+# Configure OpenSSL to use system default CA certificate locations
 ##############################################################################################################################
 OPENSSL_INSTALL="${BUILD_DIR}/openssl-install"
 echo ""
@@ -102,10 +103,14 @@ if [ ! -d "${OPENSSL_INSTALL}" ]; then
 	fi
 	cd openssl-src
 	
-	echo "Configuring OpenSSL..."
+	echo "Configuring OpenSSL to use system CA certificates..."
+	# Set openssldir to system default locations where CA certs are found
+	# On macOS: /etc/ssl (where cert.pem is located)
+	# On Windows: OpenSSL will use Windows certificate store via CAPI engine
+	# On Linux: typically /etc/ssl/certs
 	./Configure darwin64-arm64-cc \
 		--prefix="${OPENSSL_INSTALL}" \
-		--openssldir="${OPENSSL_INSTALL}/ssl" \
+		--openssldir=/etc/ssl \
 		no-shared \
 		no-tests \
 		-mmacosx-version-min="${MACOSX_DEPLOYMENT_TARGET:-13.3}"
@@ -255,7 +260,7 @@ echo "Added openh264 to PKG_CONFIG_PATH: ${OPENH264_INSTALL}/lib/pkgconfig"
 ##############################################################################################################################
 LWS_INSTALL="${BUILD_DIR}/libwebsockets-install"
 echo ""
-echo "Step 3c: Building libwebsockets from source..."
+echo "Step 3e: Building libwebsockets from source..."
 if [ ! -d "${LWS_INSTALL}" ]; then
 	cd "${BUILD_DIR}"
 	if [ ! -d "libwebsockets-src" ]; then
@@ -431,6 +436,7 @@ meson setup builddir \
 	-Dgst-plugins-bad:aom=enabled \
 	-Dgst-plugins-bad:openh264=enabled \
 	-Dgst-plugins-good:vpx=enabled \
+	-Dgst-plugins-good:osxvideo=enabled \
 	-Dlibnice=enabled \
 	-Dlibnice:crypto-library=openssl \
 	-Dlibnice:gstreamer=enabled \
