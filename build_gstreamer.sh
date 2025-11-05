@@ -255,6 +255,48 @@ echo "Added openh264 to PKG_CONFIG_PATH: ${OPENH264_INSTALL}/lib/pkgconfig"
 ##############################################################################################################################
 
 ##############################################################################################################################
+# Build SVT-AV1 separately with CMake before Meson configure
+# This provides static AV1 encoder support
+##############################################################################################################################
+SVTAV1_INSTALL="${BUILD_DIR}/svtav1-install"
+echo ""
+echo "Step 3f: Building SVT-AV1 from source..."
+if [ ! -d "${SVTAV1_INSTALL}" ]; then
+	cd "${BUILD_DIR}"
+	if [ ! -d "svtav1-src" ]; then
+		echo "Cloning SVT-AV1 v2.3.0..."
+		git clone --depth 1 --branch v2.3.0 https://gitlab.com/AOMediaCodec/SVT-AV1.git svtav1-src
+	fi
+	cd svtav1-src
+	
+	echo "Configuring SVT-AV1 with CMake..."
+	cmake -B build \
+		-DCMAKE_BUILD_TYPE=Release \
+		-DCMAKE_INSTALL_PREFIX="${SVTAV1_INSTALL}" \
+		-DCMAKE_OSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-13.3}" \
+		-DBUILD_SHARED_LIBS=OFF \
+		-DBUILD_TESTING=OFF \
+		-DBUILD_APPS=OFF \
+		-DENABLE_NASM=ON
+	
+	echo "Building SVT-AV1..."
+	cmake --build build --config Release -j$(sysctl -n hw.ncpu)
+	
+	echo "Installing SVT-AV1 to ${SVTAV1_INSTALL}..."
+	cmake --install build
+	
+	cd "${BUILD_DIR}/gstreamer"
+	echo "SVT-AV1 build complete!"
+else
+	echo "SVT-AV1 already built at ${SVTAV1_INSTALL}"
+fi
+
+# Expose SVT-AV1 via PKG_CONFIG_PATH
+export PKG_CONFIG_PATH="${SVTAV1_INSTALL}/lib/pkgconfig:${PKG_CONFIG_PATH}"
+echo "Added SVT-AV1 to PKG_CONFIG_PATH: ${SVTAV1_INSTALL}/lib/pkgconfig"
+##############################################################################################################################
+
+##############################################################################################################################
 # Build libwebsockets separately with CMake before Meson configure
 # This avoids Meson/CMake integration issues and ensures a clean static build
 ##############################################################################################################################
@@ -412,6 +454,7 @@ meson setup builddir \
 	-Dgstreamer-1.0:tools=disabled \
 	-Drs=enabled \
 	-Dgst-plugins-rs:rtp=enabled \
+	-Dgst-plugins-rs:dav1d=enabled \
 	-Dgst-plugins-base:gl=enabled \
 	-Dgst-plugins-base:playback=enabled \
 	-Dgst-plugins-base:app=enabled \
@@ -422,6 +465,7 @@ meson setup builddir \
 	-Dgst-plugins-base:audiotestsrc=enabled \
 	-Dgst-plugins-base:typefind=enabled \
 	-Dgst-plugins-base:rawparse=enabled \
+	-Dgst-plugins-base:opus=enabled \
 	-Dgst-plugins-good:rtp=enabled \
 	-Dgst-plugins-good:rtpmanager=enabled \
 	-Dgst-plugins-good:rtsp=enabled \
@@ -434,18 +478,18 @@ meson setup builddir \
 	-Dgst-plugins-bad:srtp=enabled \
 	-Dgst-plugins-bad:videoparsers=enabled \
 	-Dgst-plugins-bad:aom=enabled \
+	-Dgst-plugins-bad:svtav1=enabled \
 	-Dgst-plugins-bad:openh264=enabled \
 	-Dgst-plugins-good:vpx=enabled \
 	-Dgst-plugins-good:osxvideo=enabled \
+	-Dgst-plugins-good:qt6=enabled \
 	-Dlibnice=enabled \
 	-Dlibnice:crypto-library=openssl \
 	-Dlibnice:gstreamer=enabled \
 	-Dlibnice:tests=disabled \
 	-Dlibnice:examples=disabled \
 	-Dlibnice:introspection=disabled \
-	-Dgst-plugins-base:opus=enabled \
-	-Dqt6=enabled \
-	-Dgst-plugins-good:qt6=enabled
+	-Dqt6=enabled
 
 
 echo ""

@@ -27,6 +27,7 @@ set(PKG_CONFIG_PATH_DIRS
     "${WORKSPACE_ROOT_ABS}/openh264-install/lib/pkgconfig"
     "${WORKSPACE_ROOT_ABS}/vpx-install/lib/pkgconfig"
     "${WORKSPACE_ROOT_ABS}/aom-install/lib/pkgconfig"
+    "${WORKSPACE_ROOT_ABS}/svtav1-install/lib/pkgconfig"
     "${WORKSPACE_ROOT_ABS}/openssl-install/lib/pkgconfig"
     "${WORKSPACE_ROOT_ABS}/libwebsockets-install/lib/pkgconfig"
     "/Users/dan/code/gstjitsimeet/deps/coop-install/lib/pkgconfig"
@@ -92,6 +93,8 @@ target_link_libraries(qnujitsi PRIVATE
     PkgConfig::GSTREAMER
     # include the libgstqml6.a library here to overcome missing symbols: qInitResources_resources(), _gst_plugin_qml6_register
     ${GINST_ABS}/lib/gstreamer-1.0/libgstqml6.a
+    # Note: Rust plugins (rsrtp, dav1d) should MAYBE be embedded in libgstreamer-full-1.0.a via -Dgst-full-plugins=*
+    ${GINST_ABS}/lib/gstreamer-1.0/libgstrsrtp.a
     # ${GINST}/lib/libintl.a
 )
 
