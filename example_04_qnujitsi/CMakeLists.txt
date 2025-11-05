@@ -95,6 +95,7 @@ target_link_libraries(qnujitsi PRIVATE
     ${GINST_ABS}/lib/gstreamer-1.0/libgstqml6.a
     # Note: Rust plugins (rsrtp, dav1d) should MAYBE be embedded in libgstreamer-full-1.0.a via -Dgst-full-plugins=*
     ${GINST_ABS}/lib/gstreamer-1.0/libgstrsrtp.a
+    ${GINST_ABS}/lib/gstreamer-1.0/libgstdav1d.a
     # ${GINST}/lib/libintl.a
 )
 

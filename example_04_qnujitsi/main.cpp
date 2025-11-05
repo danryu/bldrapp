@@ -230,7 +230,7 @@ int main(int argc, char* argv[]) {
   GstElement* capsfilter = gst_element_factory_make("capsfilter", nullptr);
   GstElement* videoconvert_send = gst_element_factory_make("videoconvert", nullptr);
   GstElement* capsfilter_fmt = gst_element_factory_make("capsfilter", nullptr);
-  GstElement* av1encdr = gst_element_factory_make("svtav1enc", nullptr);
+  GstElement* av1encdr = gst_element_factory_make("rav1enc", nullptr);
   GstElement* av1parse = gst_element_factory_make("av1parse", nullptr);
   GstElement* audiotestsrc = gst_element_factory_make("audiotestsrc", nullptr);
   GstElement* opusenc = gst_element_factory_make("opusenc", nullptr);
@@ -250,6 +250,15 @@ int main(int argc, char* argv[]) {
                                              NULL);
   g_object_set(G_OBJECT(capsfilter), "caps", video_caps, NULL);
   gst_caps_unref(video_caps);
+
+
+  // Configure rav1enc
+  g_object_set(G_OBJECT(av1encdr),
+               "speed-preset", 10,
+               "low-latency", TRUE,
+              //  "bit-rate", 8000,
+               "error-resilient", TRUE,
+               NULL);
 
   // Configure jitsibin (conference details, codec preferences, and behavior)
   g_object_set(G_OBJECT(jitsibin),
@@ -285,7 +294,7 @@ int main(int argc, char* argv[]) {
   g_object_set(G_OBJECT(audiotestsrc), "is-live", TRUE, "wave", 8, NULL);
   
   g_print("=== Video send pipeline ===\n");
-  g_print("videotestsrc -> videoscale -> capsfilter -> videoconvert -> capsfilter(fmt=I420) -> svtav1enc -> av1parse -> jitsibin:video_sink\n");
+  g_print("videotestsrc -> videoscale -> capsfilter -> videoconvert -> capsfilter(fmt=I420) -> rav1enc -> av1parse -> jitsibin:video_sink\n");
   
   // Configure AV1 encoder for real-time streaming with bitrate scaling based on resolution
   // Calculate target bitrate based on resolution (roughly 0.1 bits per pixel at 30fps)
@@ -304,7 +313,6 @@ int main(int argc, char* argv[]) {
     g_printerr("Failed to link videoscale -> capsfilter\n");
     return 1;
   }
-  // no av1parse property tweaks; rely on parser defaults
 
   // Force 8-bit I420 into the encoder to produce 8-bit AV1 (Chrome/Jitsi friendly)
   {

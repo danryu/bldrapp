@@ -455,6 +455,7 @@ meson setup builddir \
 	-Drs=enabled \
 	-Dgst-plugins-rs:rtp=enabled \
 	-Dgst-plugins-rs:dav1d=enabled \
+	-Dgst-plugins-rs:rav1e=enabled \
 	-Dgst-plugins-base:gl=enabled \
 	-Dgst-plugins-base:playback=enabled \
 	-Dgst-plugins-base:app=enabled \
