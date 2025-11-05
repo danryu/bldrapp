@@ -181,8 +181,8 @@ static void jitsibin_finished(GstElement* /*jitsibin*/, gboolean success, gpoint
 int main(int argc, char* argv[]) {
   const char* host = nullptr;
   const char* room = nullptr;
-  int video_width = 640;   // Default to 720p
-  int video_height = 480;
+  int video_width = 1280;   // Default to 720p
+  int video_height = 720;
   
   if (argc >= 3) {
     host = argv[1];
@@ -230,14 +230,13 @@ int main(int argc, char* argv[]) {
   GstElement* capsfilter = gst_element_factory_make("capsfilter", nullptr);
   GstElement* videoconvert_send = gst_element_factory_make("videoconvert", nullptr);
   GstElement* capsfilter_fmt = gst_element_factory_make("capsfilter", nullptr);
-  GstElement* av1encdr = gst_element_factory_make("rav1enc", nullptr);
-  GstElement* av1parse = gst_element_factory_make("av1parse", nullptr);
+  GstElement* videncdr = gst_element_factory_make("vp9enc", nullptr);
   GstElement* audiotestsrc = gst_element_factory_make("audiotestsrc", nullptr);
   GstElement* opusenc = gst_element_factory_make("opusenc", nullptr);
 
   if (!pipeline || !jitsibin || !videoconvert || !glupload || !sink ||
       !videotestsrc || !videoscale || !capsfilter || !videoconvert_send ||
-      !capsfilter_fmt || !av1encdr || !av1parse || !audiotestsrc || !opusenc) {
+      !capsfilter_fmt || !videncdr || !audiotestsrc || !opusenc) {
     g_printerr("Failed to create one or more GStreamer elements.\n");
     return 1;
   }
@@ -252,21 +251,24 @@ int main(int argc, char* argv[]) {
   gst_caps_unref(video_caps);
 
 
-  // Configure rav1enc
-  g_object_set(G_OBJECT(av1encdr),
-               "speed-preset", 10,
-               "low-latency", TRUE,
-              //  "bit-rate", 8000,
-               "error-resilient", TRUE,
-               NULL);
+  // Optional realtime defaults for vp9enc if present
+  if (g_object_class_find_property(G_OBJECT_GET_CLASS(videncdr), "deadline") != NULL) {
+    g_object_set(G_OBJECT(videncdr), "deadline", 1, NULL); // realtime
+  }
+  if (g_object_class_find_property(G_OBJECT_GET_CLASS(videncdr), "cpu-used") != NULL) {
+    g_object_set(G_OBJECT(videncdr), "cpu-used", 8, NULL);
+  }
+  if (g_object_class_find_property(G_OBJECT_GET_CLASS(videncdr), "lag-in-frames") != NULL) {
+    g_object_set(G_OBJECT(videncdr), "lag-in-frames", 0, NULL);
+  }
 
   // Configure jitsibin (conference details, codec preferences, and behavior)
   g_object_set(G_OBJECT(jitsibin),
                "server", host,
                "room", room,
                "nick", "qnujitsi_user",
-               // Ensure sender uses AV1 so jitsibin selects rtpav1pay
-               "video-codec", 4, /* Av1 enum value */
+               // Ensure sender uses VP9 so jitsibin selects rtpvp9pay
+               "video-codec", 3, /* Vp9 enum value */
                "receive-limit", 3,
                "force-play", TRUE,
                "insecure", TRUE,
@@ -279,7 +281,7 @@ int main(int argc, char* argv[]) {
                    // receive path
                    videoconvert, glupload, sink,
                    // send path
-                   videotestsrc, videoscale, capsfilter, videoconvert_send, capsfilter_fmt, av1encdr, av1parse,
+                   videotestsrc, videoscale, capsfilter, videoconvert_send, capsfilter_fmt, videncdr,
                    audiotestsrc, opusenc,
                    NULL);
 
@@ -294,7 +296,7 @@ int main(int argc, char* argv[]) {
   g_object_set(G_OBJECT(audiotestsrc), "is-live", TRUE, "wave", 8, NULL);
   
   g_print("=== Video send pipeline ===\n");
-  g_print("videotestsrc -> videoscale -> capsfilter -> videoconvert -> capsfilter(fmt=I420) -> rav1enc -> av1parse -> jitsibin:video_sink\n");
+  g_print("videotestsrc -> videoscale -> capsfilter -> videoconvert -> capsfilter(fmt=I420) -> vp9enc -> jitsibin:video_sink\n");
   
   // Configure AV1 encoder for real-time streaming with bitrate scaling based on resolution
   // Calculate target bitrate based on resolution (roughly 0.1 bits per pixel at 30fps)
@@ -324,12 +326,12 @@ int main(int argc, char* argv[]) {
   }
 
   // Link the rest of the chain
-  if (!gst_element_link_many(capsfilter, videoconvert_send, capsfilter_fmt, av1encdr, av1parse, NULL)) {
-    g_printerr("Failed to link capsfilter -> videoconvert -> capsfilter_fmt -> av1encdr -> av1parse\n");
+  if (!gst_element_link_many(capsfilter, videoconvert_send, capsfilter_fmt, videncdr, NULL)) {
+    g_printerr("Failed to link capsfilter -> videoconvert -> capsfilter_fmt -> videncdr\n");
     return 1;
   }
-  if (!gst_element_link_pads(av1parse, NULL, jitsibin, "video_sink")) {
-    g_printerr("Failed to link av1parse -> jitsibin video_sink\n");
+  if (!gst_element_link_pads(videncdr, NULL, jitsibin, "video_sink")) {
+    g_printerr("Failed to link videncdr -> jitsibin video_sink\n");
     return 1;
   }
   // // (debug probe removed)
