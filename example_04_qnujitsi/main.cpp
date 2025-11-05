@@ -181,13 +181,26 @@ static void jitsibin_finished(GstElement* /*jitsibin*/, gboolean success, gpoint
 int main(int argc, char* argv[]) {
   const char* host = nullptr;
   const char* room = nullptr;
+  int video_width = 640;   // Default to 720p
+  int video_height = 480;
+  
   if (argc >= 3) {
     host = argv[1];
     room = argv[2];
+    // Optional resolution parameters
+    if (argc >= 5) {
+      video_width = atoi(argv[3]);
+      video_height = atoi(argv[4]);
+    }
   } else {
-    g_printerr("Usage: %s <HOST> <ROOM>\n", argv[0]);
+    g_printerr("Usage: %s <HOST> <ROOM> [WIDTH HEIGHT]\n", argv[0]);
+    g_printerr("  Default resolution: 1280x720\n");
+    g_printerr("  Example 480p: %s meet.jit.si myroom 854 480\n", argv[0]);
+    g_printerr("  Example 720p: %s meet.jit.si myroom 1280 720\n", argv[0]);
     return 1;
   }
+  
+  g_print("Configuration: %dx%d video resolution\n", video_width, video_height);
 
   gst_init(&argc, &argv);
   // Register static plugins compiled into the libgstreamer-full build
@@ -213,17 +226,30 @@ int main(int argc, char* argv[]) {
 
   // Send path elements (mirror receiver.cpp behavior)
   GstElement* videotestsrc = gst_element_factory_make("videotestsrc", nullptr);
+  GstElement* videoscale = gst_element_factory_make("videoscale", nullptr);
+  GstElement* capsfilter = gst_element_factory_make("capsfilter", nullptr);
   GstElement* videoconvert_send = gst_element_factory_make("videoconvert", nullptr);
-  GstElement* av1enc = gst_element_factory_make("av1enc", nullptr);
+  GstElement* capsfilter_fmt = gst_element_factory_make("capsfilter", nullptr);
+  GstElement* av1encdr = gst_element_factory_make("svtav1enc", nullptr);
   GstElement* av1parse = gst_element_factory_make("av1parse", nullptr);
   GstElement* audiotestsrc = gst_element_factory_make("audiotestsrc", nullptr);
   GstElement* opusenc = gst_element_factory_make("opusenc", nullptr);
 
   if (!pipeline || !jitsibin || !videoconvert || !glupload || !sink ||
-      !videotestsrc || !videoconvert_send || !av1enc || !av1parse || !audiotestsrc || !opusenc) {
+      !videotestsrc || !videoscale || !capsfilter || !videoconvert_send ||
+      !capsfilter_fmt || !av1encdr || !av1parse || !audiotestsrc || !opusenc) {
     g_printerr("Failed to create one or more GStreamer elements.\n");
     return 1;
   }
+  
+  // Set resolution caps for the video source
+  GstCaps* video_caps = gst_caps_new_simple("video/x-raw",
+                                             "width", G_TYPE_INT, video_width,
+                                             "height", G_TYPE_INT, video_height,
+                                             "framerate", GST_TYPE_FRACTION, 30, 1,
+                                             NULL);
+  g_object_set(G_OBJECT(capsfilter), "caps", video_caps, NULL);
+  gst_caps_unref(video_caps);
 
   // Configure jitsibin (conference details, codec preferences, and behavior)
   g_object_set(G_OBJECT(jitsibin),
@@ -244,7 +270,7 @@ int main(int argc, char* argv[]) {
                    // receive path
                    videoconvert, glupload, sink,
                    // send path
-                   videotestsrc, videoconvert_send, av1enc, av1parse,
+                   videotestsrc, videoscale, capsfilter, videoconvert_send, capsfilter_fmt, av1encdr, av1parse,
                    audiotestsrc, opusenc,
                    NULL);
 
@@ -257,22 +283,64 @@ int main(int argc, char* argv[]) {
   // Configure and link send path to publish local test AV
   g_object_set(G_OBJECT(videotestsrc), "is-live", TRUE, NULL);
   g_object_set(G_OBJECT(audiotestsrc), "is-live", TRUE, "wave", 8, NULL);
-  // Configure AV1 encoder for real-time streaming
-  // Use low-latency settings comparable to the previous H.264 setup
-  g_object_set(G_OBJECT(av1enc),
-               "keyframe-max-dist", 30,
-               "cpu-used", 8,
-               "lag-in-frames", 0,
-               NULL);
+  
+  g_print("=== Video send pipeline ===\n");
+  g_print("videotestsrc -> videoscale -> capsfilter -> videoconvert -> capsfilter(fmt=I420) -> svtav1enc -> av1parse -> jitsibin:video_sink\n");
+  
+  // Configure AV1 encoder for real-time streaming with bitrate scaling based on resolution
+  // Calculate target bitrate based on resolution (roughly 0.1 bits per pixel at 30fps)
+  int target_bitrate = (video_width * video_height * 30 * 0.15) / 1000; // in kbps
+  g_print("AV1 encoder target bitrate: %d kbps\n", target_bitrate);
+  
+  // (intentionally minimal) keep encoder defaults; we force 8-bit via input caps below
 
-  if (!gst_element_link_many(videotestsrc, videoconvert_send, av1enc, av1parse, NULL)) {
-    g_printerr("Failed to link videotestsrc -> videoconvert -> av1enc -> av1parse\n");
+  // Link videotestsrc to videoscale
+  if (!gst_element_link(videotestsrc, videoscale)) {
+    g_printerr("Failed to link videotestsrc -> videoscale\n");
+    return 1;
+  }
+  // Link videoscale to capsfilter with explicit caps
+  if (!gst_element_link_filtered(videoscale, capsfilter, video_caps)) {
+    g_printerr("Failed to link videoscale -> capsfilter\n");
+    return 1;
+  }
+  // no av1parse property tweaks; rely on parser defaults
+
+  // Force 8-bit I420 into the encoder to produce 8-bit AV1 (Chrome/Jitsi friendly)
+  {
+    GstCaps* fmt_caps = gst_caps_new_simple("video/x-raw",
+                                            "format", G_TYPE_STRING, "I420",
+                                            NULL);
+    g_object_set(G_OBJECT(capsfilter_fmt), "caps", fmt_caps, NULL);
+    gst_caps_unref(fmt_caps);
+  }
+
+  // Link the rest of the chain
+  if (!gst_element_link_many(capsfilter, videoconvert_send, capsfilter_fmt, av1encdr, av1parse, NULL)) {
+    g_printerr("Failed to link capsfilter -> videoconvert -> capsfilter_fmt -> av1encdr -> av1parse\n");
     return 1;
   }
   if (!gst_element_link_pads(av1parse, NULL, jitsibin, "video_sink")) {
     g_printerr("Failed to link av1parse -> jitsibin video_sink\n");
     return 1;
   }
+  // // (debug probe removed)
+  
+  // // Add probe on jitsibin's video_sink to confirm it receives data
+  // GstPad* jitsibin_video_sink = gst_element_get_static_pad(jitsibin, "video_sink");
+  // if (jitsibin_video_sink) {
+  //   gst_pad_add_probe(jitsibin_video_sink, GST_PAD_PROBE_TYPE_BUFFER,
+  //     [](GstPad*, GstPadProbeInfo* info, gpointer) -> GstPadProbeReturn {
+  //       static int count = 0;
+  //       GstBuffer* buf = GST_PAD_PROBE_INFO_BUFFER(info);
+  //       if (++count % 30 == 0) {
+  //         g_print("jitsibin video_sink: %d buffers received (size: %zu bytes, pts: %" GST_TIME_FORMAT ")\n",
+  //                 count, gst_buffer_get_size(buf), GST_TIME_ARGS(GST_BUFFER_PTS(buf)));
+  //       }
+  //       return GST_PAD_PROBE_OK;
+  //     }, nullptr, nullptr);
+  //   gst_object_unref(jitsibin_video_sink);
+  // }
   if (!gst_element_link_many(audiotestsrc, opusenc, NULL)) {
     g_printerr("Failed to link audiotestsrc -> opusenc\n");
     return 1;
@@ -286,6 +354,13 @@ int main(int argc, char* argv[]) {
   Context ctx{pipeline, videoconvert};
   g_signal_connect(jitsibin, "pad-added", GCallback(jitsibin_pad_added), &ctx);
   g_signal_connect(jitsibin, "finished", GCallback(jitsibin_finished), &ctx);
+  
+  // // Monitor jitsibin state/signaling via notify signals
+  // g_signal_connect(jitsibin, "notify::signaling-state", GCallback(+[](GObject* obj, GParamSpec*, gpointer) {
+  //   gint state = 0;
+  //   g_object_get(obj, "signaling-state", &state, NULL);
+  //   g_print("jitsibin signaling-state changed to: %d\n", state);
+  // }), nullptr);
 
   // Load QML and bind the sink to the QML video item
   QQmlApplicationEngine engine;
@@ -314,10 +389,19 @@ int main(int argc, char* argv[]) {
       if (!msg) break;
 
       switch (GST_MESSAGE_TYPE(msg)) {
+        case GST_MESSAGE_WARNING: {
+          GError* err = nullptr; gchar* dbg = nullptr;
+          gst_message_parse_warning(msg, &err, &dbg);
+          g_printerr("WARNING from %s: %s\n", GST_OBJECT_NAME(msg->src), err ? err->message : "unknown");
+          if (dbg) g_printerr("Debug: %s\n", dbg);
+          g_clear_error(&err); g_free(dbg);
+          break;
+        }
         case GST_MESSAGE_ERROR: {
           GError* err = nullptr; gchar* dbg = nullptr;
           gst_message_parse_error(msg, &err, &dbg);
           g_printerr("ERROR from %s: %s\n", GST_OBJECT_NAME(msg->src), err ? err->message : "unknown");
+          if (dbg) g_printerr("Debug: %s\n", dbg);
 
           if (err && err->domain == GST_STREAM_ERROR && err->code == GST_STREAM_ERROR_DECODE) {
             const GstClockTime now = gst_util_get_timestamp();
@@ -339,6 +423,16 @@ int main(int argc, char* argv[]) {
           }
 
           g_clear_error(&err); g_free(dbg);
+          break;
+        }
+        case GST_MESSAGE_STATE_CHANGED: {
+          if (GST_MESSAGE_SRC(msg) == GST_OBJECT(pipeline)) {
+            GstState old_state, new_state, pending;
+            gst_message_parse_state_changed(msg, &old_state, &new_state, &pending);
+            g_print("Pipeline state: %s -> %s\n",
+                    gst_element_state_get_name(old_state),
+                    gst_element_state_get_name(new_state));
+          }
           break;
         }
         case GST_MESSAGE_EOS:
