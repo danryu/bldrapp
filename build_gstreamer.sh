@@ -25,10 +25,6 @@ echo "Step 1: Checking dependencies (Homebrew install disabled by default)..."
 INSTALL_DEPS=${INSTALL_DEPS:-false}
 if [ "${INSTALL_DEPS}" = true ]; then
 	brew install meson ninja pkg-config python3 bison flex nasm gettext
-	# brew install cairo jpeg libpng opus libvpx jack speex flac lame \
-	# 	mpg123 libdv libnice json-glib libsoup openssl srtp \
-	# 	libde265 aom webp libsndfile srt curl
-	brew install rust
 else
 	echo "Skipping Homebrew installs. Ensure meson, ninja, pkg-config, python3, bison, flex are installed."
 fi
@@ -79,11 +75,11 @@ fi
 # Set up environment for Qt6 (STATIC)
 export PKG_CONFIG_PATH="${QT_PATH}/lib/pkgconfig"
 export PKG_CONFIG_LIBDIR="${QT_PATH}/lib/pkgconfig"
-export PATH="/Users/dan/.cargo/bin:${QT_PATH}/bin:${QT_PATH}/libexec:${PATH}"
+export PATH="${QT_PATH}/bin:${QT_PATH}/libexec:${PATH}"
 export CMAKE_PREFIX_PATH="${QT_PATH}"
 export MACOSX_DEPLOYMENT_TARGET="13.3"
-# Ensure Rust and C/C++ agree on the deployment target and link system zlib (no Homebrew)
-export RUSTFLAGS="-C link-arg=-mmacosx-version-min=13.3 -C link-arg=-lz ${RUSTFLAGS}"
+# # Ensure Rust and C/C++ agree on the deployment target and link system zlib (no Homebrew)
+# export RUSTFLAGS="-C link-arg=-mmacosx-version-min=13.3 -C link-arg=-lz ${RUSTFLAGS}"
 export CFLAGS="-mmacosx-version-min=13.3 ${CFLAGS}"
 export CXXFLAGS="-mmacosx-version-min=13.3 ${CXXFLAGS}"
 
@@ -133,49 +129,6 @@ echo "Added OpenSSL to PKG_CONFIG_PATH: ${OPENSSL_INSTALL}/lib/pkgconfig"
 ##############################################################################################################################
 
 ##############################################################################################################################
-# Build AOM separately with CMake before Meson configure
-# This provides static AV1 codec support
-##############################################################################################################################
-AOM_INSTALL="${BUILD_DIR}/aom-install"
-echo ""
-echo "Step 3b: Building AOM from source..."
-if [ ! -d "${AOM_INSTALL}" ]; then
-	cd "${BUILD_DIR}"
-	if [ ! -d "aom-src" ]; then
-		echo "Cloning AOM v3.11.0..."
-		git clone --depth 1 --branch v3.11.0 https://aomedia.googlesource.com/aom aom-src
-	fi
-	cd aom-src
-	
-	echo "Configuring AOM with CMake..."
-	cmake -B build \
-		-DCMAKE_BUILD_TYPE=Release \
-		-DCMAKE_INSTALL_PREFIX="${AOM_INSTALL}" \
-		-DCMAKE_OSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-13.3}" \
-		-DBUILD_SHARED_LIBS=OFF \
-		-DENABLE_TESTS=OFF \
-		-DENABLE_EXAMPLES=OFF \
-		-DENABLE_DOCS=OFF \
-		-DENABLE_TOOLS=OFF
-	
-	echo "Building AOM..."
-	cmake --build build --config Release -j$(sysctl -n hw.ncpu)
-	
-	echo "Installing AOM to ${AOM_INSTALL}..."
-	cmake --install build
-	
-	cd "${BUILD_DIR}/gstreamer"
-	echo "AOM build complete!"
-else
-	echo "AOM already built at ${AOM_INSTALL}"
-fi
-
-# Expose AOM via PKG_CONFIG_PATH
-export PKG_CONFIG_PATH="${AOM_INSTALL}/lib/pkgconfig:${PKG_CONFIG_PATH}"
-echo "Added AOM to PKG_CONFIG_PATH: ${AOM_INSTALL}/lib/pkgconfig"
-##############################################################################################################################
-
-##############################################################################################################################
 # Build libvpx separately for VP8/VP9 support
 ##############################################################################################################################
 VPX_INSTALL="${BUILD_DIR}/vpx-install"
@@ -218,82 +171,6 @@ fi
 # Expose libvpx via PKG_CONFIG_PATH
 export PKG_CONFIG_PATH="${VPX_INSTALL}/lib/pkgconfig:${PKG_CONFIG_PATH}"
 echo "Added libvpx to PKG_CONFIG_PATH: ${VPX_INSTALL}/lib/pkgconfig"
-##############################################################################################################################
-
-##############################################################################################################################
-# Build openh264 separately for H.264 support
-##############################################################################################################################
-OPENH264_INSTALL="${BUILD_DIR}/openh264-install"
-echo ""
-echo "Step 3d: Building openh264 from source..."
-if [ ! -d "${OPENH264_INSTALL}" ]; then
-	cd "${BUILD_DIR}"
-	if [ ! -d "openh264-src" ]; then
-		echo "Cloning openh264 v2.4.1..."
-		git clone --depth 1 --branch v2.4.1 https://github.com/cisco/openh264.git openh264-src
-	fi
-	cd openh264-src
-	
-	echo "Building openh264 static library..."
-	make -j$(sysctl -n hw.ncpu) \
-		PREFIX="${OPENH264_INSTALL}" \
-		BUILDTYPE=Release \
-		libraries
-	
-	echo "Installing openh264 static library to ${OPENH264_INSTALL}..."
-	make install-static-lib PREFIX="${OPENH264_INSTALL}"
-	
-	cd "${BUILD_DIR}/gstreamer"
-	echo "openh264 build complete!"
-else
-	echo "openh264 already built at ${OPENH264_INSTALL}"
-fi
-
-# Expose openh264 via PKG_CONFIG_PATH
-export PKG_CONFIG_PATH="${OPENH264_INSTALL}/lib/pkgconfig:${PKG_CONFIG_PATH}"
-echo "Added openh264 to PKG_CONFIG_PATH: ${OPENH264_INSTALL}/lib/pkgconfig"
-##############################################################################################################################
-
-##############################################################################################################################
-# Build SVT-AV1 separately with CMake before Meson configure
-# This provides static AV1 encoder support
-##############################################################################################################################
-SVTAV1_INSTALL="${BUILD_DIR}/svtav1-install"
-echo ""
-echo "Step 3f: Building SVT-AV1 from source..."
-if [ ! -d "${SVTAV1_INSTALL}" ]; then
-	cd "${BUILD_DIR}"
-	if [ ! -d "svtav1-src" ]; then
-		echo "Cloning SVT-AV1 v2.3.0..."
-		git clone --depth 1 --branch v2.3.0 https://gitlab.com/AOMediaCodec/SVT-AV1.git svtav1-src
-	fi
-	cd svtav1-src
-	
-	echo "Configuring SVT-AV1 with CMake..."
-	cmake -B build \
-		-DCMAKE_BUILD_TYPE=Release \
-		-DCMAKE_INSTALL_PREFIX="${SVTAV1_INSTALL}" \
-		-DCMAKE_OSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-13.3}" \
-		-DBUILD_SHARED_LIBS=OFF \
-		-DBUILD_TESTING=OFF \
-		-DBUILD_APPS=OFF \
-		-DENABLE_NASM=ON
-	
-	echo "Building SVT-AV1..."
-	cmake --build build --config Release -j$(sysctl -n hw.ncpu)
-	
-	echo "Installing SVT-AV1 to ${SVTAV1_INSTALL}..."
-	cmake --install build
-	
-	cd "${BUILD_DIR}/gstreamer"
-	echo "SVT-AV1 build complete!"
-else
-	echo "SVT-AV1 already built at ${SVTAV1_INSTALL}"
-fi
-
-# Expose SVT-AV1 via PKG_CONFIG_PATH
-export PKG_CONFIG_PATH="${SVTAV1_INSTALL}/lib/pkgconfig:${PKG_CONFIG_PATH}"
-echo "Added SVT-AV1 to PKG_CONFIG_PATH: ${SVTAV1_INSTALL}/lib/pkgconfig"
 ##############################################################################################################################
 
 ##############################################################################################################################
@@ -399,33 +276,6 @@ if [ -d "${PROXY_INTL_DIR}" ]; then
 fi
 ##############################################################################################################################
 
-# # Ensure libnice overrides dependency('nice') for superprojects
-# LIBNICE_NICE_DIR="subprojects/libnice/nice"
-# if [ -d "${LIBNICE_NICE_DIR}" ]; then
-# 	if ! grep -q "override_dependency('nice'" "${LIBNICE_NICE_DIR}/meson.build" 2>/dev/null; then
-# 		if [ -f "${BUILD_DIR}/patches/libnice/meson.build.append" ]; then
-# 			printf "\n%s\n" "$(cat "${BUILD_DIR}/patches/libnice/meson.build.append")" >> "${LIBNICE_NICE_DIR}/meson.build"
-# 		fi
-# 	fi
-# fi
-
-# # Provide a local pkg-config for libnice so external subprojects can find it pre-install
-# mkdir -p local-pc
-# cat > local-pc/nice.pc << 'EOF'
-# prefix=@PWD@
-# includedir=${prefix}/subprojects/libnice/nice
-# libdir=${prefix}/builddir/subprojects/libnice
-
-# Name: libnice
-# Description: ICE library
-# Version: 0.1.22
-# Libs: -L${libdir} -lnice
-# Cflags: -I${includedir}
-# EOF
-# # Replace @PWD@ with current gstreamer dir
-# sed -i '' -e "s#@PWD@#$(pwd)#g" local-pc/nice.pc
-# export PKG_CONFIG_PATH="$(pwd)/local-pc:${PKG_CONFIG_PATH}"
-
 # Configure with Meson (STATIC build)
 # Enable gst-full (monolithic static library)
 # Use wildcard for plugins to include all enabled plugins
@@ -441,7 +291,6 @@ meson setup builddir \
 	-Dglib:tests=false \
 	-Djson-glib:tests=false \
 	-Dpcre2:test=false \
-	-Dgstreamer-1.0:libav=enabled \
 	-Dgstreamer-1.0:ugly=disabled \
 	-Dgstreamer-1.0:ges=disabled \
 	-Dgstreamer-1.0:devtools=disabled \
@@ -452,10 +301,6 @@ meson setup builddir \
 	-Dgst-full-target-type=static_library \
 	-Dgst-full-libraries=gstreamer-video-1.0,gstreamer-audio-1.0,gstreamer-app-1.0,gstreamer-gl-1.0,gstreamer-base-1.0,gstreamer-tag-1.0,gstreamer-pbutils-1.0,gstreamer-rtp-1.0,gstreamer-codecparsers-1.0 \
 	-Dgstreamer-1.0:tools=disabled \
-	-Drs=enabled \
-	-Dgst-plugins-rs:rtp=enabled \
-	-Dgst-plugins-rs:dav1d=enabled \
-	-Dgst-plugins-rs:rav1e=enabled \
 	-Dgst-plugins-base:gl=enabled \
 	-Dgst-plugins-base:playback=enabled \
 	-Dgst-plugins-base:app=enabled \
@@ -478,9 +323,6 @@ meson setup builddir \
 	-Dgst-plugins-bad:dtls=enabled \
 	-Dgst-plugins-bad:srtp=enabled \
 	-Dgst-plugins-bad:videoparsers=enabled \
-	-Dgst-plugins-bad:aom=enabled \
-	-Dgst-plugins-bad:svtav1=enabled \
-	-Dgst-plugins-bad:openh264=enabled \
 	-Dgst-plugins-good:vpx=enabled \
 	-Dgst-plugins-good:osxvideo=enabled \
 	-Dgst-plugins-good:qt6=enabled \
@@ -491,6 +333,16 @@ meson setup builddir \
 	-Dlibnice:examples=disabled \
 	-Dlibnice:introspection=disabled \
 	-Dqt6=enabled
+
+# REMOVED !!!!
+	# -Drs=enabled \
+	# -Dgst-plugins-rs:rtp=enabled \
+	# -Dgst-plugins-rs:dav1d=enabled \
+	# -Dgst-plugins-rs:rav1e=enabled \
+	# -Dgst-plugins-bad:aom=enabled \
+	# -Dgst-plugins-bad:svtav1=enabled \
+	# -Dgst-plugins-bad:openh264=enabled \
+	# -Dgstreamer-1.0:libav=enabled \
 
 
 echo ""
@@ -541,53 +393,6 @@ else
     exit 1
 fi
 
-# Static verification without gst-inspect: search archives for element names
-echo ""
-echo "Verifying AV1 presence using strings/nm on static archives..."
-
-PLUG_DIR="${INSTALL_PREFIX}/lib/gstreamer-1.0"
-ARCHIVES=("${GST_FULL_A}")
-if [ -d "${PLUG_DIR}" ]; then
-    while IFS= read -r -d '' f; do ARCHIVES+=("$f"); done < <(find "${PLUG_DIR}" -name '*.a' -print0 2>/dev/null || true)
-fi
-
-check_in_archives() {
-    local pattern="$1"
-    local found=false
-    for a in "${ARCHIVES[@]}"; do
-        if strings -a "$a" | grep -Eiq "$pattern"; then
-            echo "Found '$pattern' in $a"
-            found=true
-        else
-            # Fallback to nm symbol scan (best effort)
-            if nm -gU "$a" 2>/dev/null | grep -Eiq "$pattern"; then
-                echo "Found symbol matching '$pattern' in $a (nm)"
-                found=true
-            fi
-        fi
-    done
-    if [ "$found" != true ]; then
-        echo "MISSING: '$pattern' not present in any archive"
-        return 1
-    fi
-    return 0
-}
-
-MISSING=0
-check_in_archives 'rtpav1depay' || MISSING=1
-check_in_archives 'rtpav1pay' || true
-check_in_archives 'av1parse' || MISSING=1
-check_in_archives 'av1enc' || MISSING=1
-check_in_archives 'av1dec' || true
-
-if [ "$MISSING" -ne 0 ]; then
-    echo ""
-    echo "ERROR: One or more required AV1 components missing from static archives."
-    echo "Ensure: -Dgst-plugins-good:rtp=enabled, -Dgst-plugins-bad:videoparsers=enabled, -Dgst-plugins-bad:aom=enabled, and gstreamer-codecparsers included in gst-full libraries."
-    exit 1
-else
-    echo "AV1 RTP depay/parse/enc present in static archives."
-fi
 
 echo ""
 echo "=================================================="
