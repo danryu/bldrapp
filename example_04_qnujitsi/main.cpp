@@ -387,106 +387,106 @@ int main(int argc, char* argv[]) {
   // Start the pipeline in the render thread
   root->scheduleRenderJob(new SetPlaying(pipeline), QQuickWindow::BeforeSynchronizingStage);
 
-  // Drain the bus periodically to prevent queue overflow. On decode errors,
-  // request an upstream keyframe (throttled) to recover decoder state.
-  GstBus* bus = gst_element_get_bus(pipeline);
-  QTimer* busTimer = new QTimer(&app);
-  QObject::connect(busTimer, &QTimer::timeout, [&](){
-    int processed = 0;
-    constexpr int kMaxPerTick = 200; // cap to keep CPU in check
-    for (;;) {
-      GstMessage* msg = gst_bus_pop(bus);
-      if (!msg) break;
+  // // Drain the bus periodically to prevent queue overflow. On decode errors,
+  // // request an upstream keyframe (throttled) to recover decoder state.
+  // GstBus* bus = gst_element_get_bus(pipeline);
+  // QTimer* busTimer = new QTimer(&app);
+  // QObject::connect(busTimer, &QTimer::timeout, [&](){
+  //   int processed = 0;
+  //   constexpr int kMaxPerTick = 200; // cap to keep CPU in check
+  //   for (;;) {
+  //     GstMessage* msg = gst_bus_pop(bus);
+  //     if (!msg) break;
 
-      switch (GST_MESSAGE_TYPE(msg)) {
-        case GST_MESSAGE_WARNING: {
-          GError* err = nullptr; gchar* dbg = nullptr;
-          gst_message_parse_warning(msg, &err, &dbg);
-          g_printerr("WARNING from %s: %s\n", GST_OBJECT_NAME(msg->src), err ? err->message : "unknown");
-          if (dbg) g_printerr("Debug: %s\n", dbg);
-          g_clear_error(&err); g_free(dbg);
-          break;
-        }
-        case GST_MESSAGE_ERROR: {
-          GError* err = nullptr; gchar* dbg = nullptr;
-          gst_message_parse_error(msg, &err, &dbg);
-          g_printerr("ERROR from %s: %s\n", GST_OBJECT_NAME(msg->src), err ? err->message : "unknown");
-          if (dbg) g_printerr("Debug: %s\n", dbg);
+  //     switch (GST_MESSAGE_TYPE(msg)) {
+  //       case GST_MESSAGE_WARNING: {
+  //         GError* err = nullptr; gchar* dbg = nullptr;
+  //         gst_message_parse_warning(msg, &err, &dbg);
+  //         g_printerr("WARNING from %s: %s\n", GST_OBJECT_NAME(msg->src), err ? err->message : "unknown");
+  //         if (dbg) g_printerr("Debug: %s\n", dbg);
+  //         g_clear_error(&err); g_free(dbg);
+  //         break;
+  //       }
+  //       case GST_MESSAGE_ERROR: {
+  //         GError* err = nullptr; gchar* dbg = nullptr;
+  //         gst_message_parse_error(msg, &err, &dbg);
+  //         g_printerr("ERROR from %s: %s\n", GST_OBJECT_NAME(msg->src), err ? err->message : "unknown");
+  //         if (dbg) g_printerr("Debug: %s\n", dbg);
 
-          if (err && err->domain == GST_STREAM_ERROR && err->code == GST_STREAM_ERROR_DECODE) {
-            const GstClockTime now = gst_util_get_timestamp();
-            // throttle to avoid spamming RTCP: at most twice per second
-            if (now - ctx.last_keyunit_request_ts >= 500 * GST_MSECOND) {
-              gboolean sent = FALSE;
-              if (ctx.predecode_queue) {
-                auto* ev = gst_video_event_new_upstream_force_key_unit(GST_CLOCK_TIME_NONE, TRUE, 0);
-                sent = gst_element_send_event(ctx.predecode_queue, ev);
-                g_print("Requested keyframe via predecode queue: %s\n", sent ? "OK" : "FAILED");
-              }
-              if (!sent) {
-                auto* ev2 = gst_video_event_new_upstream_force_key_unit(GST_CLOCK_TIME_NONE, TRUE, 0);
-                sent = gst_element_send_event(jitsibin, ev2);
-                g_print("Requested keyframe via jitsibin: %s\n", sent ? "OK" : "FAILED");
-              }
-              if (sent) ctx.last_keyunit_request_ts = now;
-            }
-          }
+  //         if (err && err->domain == GST_STREAM_ERROR && err->code == GST_STREAM_ERROR_DECODE) {
+  //           const GstClockTime now = gst_util_get_timestamp();
+  //           // throttle to avoid spamming RTCP: at most twice per second
+  //           if (now - ctx.last_keyunit_request_ts >= 500 * GST_MSECOND) {
+  //             gboolean sent = FALSE;
+  //             if (ctx.predecode_queue) {
+  //               auto* ev = gst_video_event_new_upstream_force_key_unit(GST_CLOCK_TIME_NONE, TRUE, 0);
+  //               sent = gst_element_send_event(ctx.predecode_queue, ev);
+  //               g_print("Requested keyframe via predecode queue: %s\n", sent ? "OK" : "FAILED");
+  //             }
+  //             if (!sent) {
+  //               auto* ev2 = gst_video_event_new_upstream_force_key_unit(GST_CLOCK_TIME_NONE, TRUE, 0);
+  //               sent = gst_element_send_event(jitsibin, ev2);
+  //               g_print("Requested keyframe via jitsibin: %s\n", sent ? "OK" : "FAILED");
+  //             }
+  //             if (sent) ctx.last_keyunit_request_ts = now;
+  //           }
+  //         }
 
-          g_clear_error(&err); g_free(dbg);
-          break;
-        }
-        case GST_MESSAGE_STATE_CHANGED: {
-          if (GST_MESSAGE_SRC(msg) == GST_OBJECT(pipeline)) {
-            GstState old_state, new_state, pending;
-            gst_message_parse_state_changed(msg, &old_state, &new_state, &pending);
-            g_print("Pipeline state: %s -> %s\n",
-                    gst_element_state_get_name(old_state),
-                    gst_element_state_get_name(new_state));
-          }
-          break;
-        }
-        case GST_MESSAGE_EOS:
-          app.quit();
-          break;
-        default:
-          break;
-      }
-      gst_message_unref(msg);
-      if (++processed >= kMaxPerTick) break;
-    }
-  });
-  busTimer->start(16); // ~60Hz is enough to keep the bus drained
+  //         g_clear_error(&err); g_free(dbg);
+  //         break;
+  //       }
+  //       case GST_MESSAGE_STATE_CHANGED: {
+  //         if (GST_MESSAGE_SRC(msg) == GST_OBJECT(pipeline)) {
+  //           GstState old_state, new_state, pending;
+  //           gst_message_parse_state_changed(msg, &old_state, &new_state, &pending);
+  //           g_print("Pipeline state: %s -> %s\n",
+  //                   gst_element_state_get_name(old_state),
+  //                   gst_element_state_get_name(new_state));
+  //         }
+  //         break;
+  //       }
+  //       case GST_MESSAGE_EOS:
+  //         app.quit();
+  //         break;
+  //       default:
+  //         break;
+  //     }
+  //     gst_message_unref(msg);
+  //     if (++processed >= kMaxPerTick) break;
+  //   }
+  // });
+  // busTimer->start(16); // ~60Hz is enough to keep the bus drained
 
-  // Watchdog: if no decoded frames observed for a while, request a keyframe upstream
-  ctx.last_video_buf_ts = gst_util_get_timestamp();
-  QTimer* watchdogTimer = new QTimer(&app);
-  QObject::connect(watchdogTimer, &QTimer::timeout, [&](){
-    const GstClockTime now = gst_util_get_timestamp();
-    // if we haven't seen a decoded buffer for 700ms, ask for a keyframe
-    if (now - ctx.last_video_buf_ts > 700 * GST_MSECOND) {
-      if (now - ctx.last_keyunit_request_ts >= 500 * GST_MSECOND) {
-        gboolean sent = FALSE;
-        if (ctx.predecode_queue) {
-          auto* ev = gst_video_event_new_upstream_force_key_unit(GST_CLOCK_TIME_NONE, TRUE, 0);
-          sent = gst_element_send_event(ctx.predecode_queue, ev);
-          g_print("Watchdog: requested keyframe via predecode queue: %s\n", sent ? "OK" : "FAILED");
-        }
-        if (!sent) {
-          auto* ev2 = gst_video_event_new_upstream_force_key_unit(GST_CLOCK_TIME_NONE, TRUE, 0);
-          sent = gst_element_send_event(jitsibin, ev2);
-          g_print("Watchdog: requested keyframe via jitsibin: %s\n", sent ? "OK" : "FAILED");
-        }
-        if (sent) ctx.last_keyunit_request_ts = now;
-      }
-    }
-  });
-  watchdogTimer->start(200);
+  // // Watchdog: if no decoded frames observed for a while, request a keyframe upstream
+  // ctx.last_video_buf_ts = gst_util_get_timestamp();
+  // QTimer* watchdogTimer = new QTimer(&app);
+  // QObject::connect(watchdogTimer, &QTimer::timeout, [&](){
+  //   const GstClockTime now = gst_util_get_timestamp();
+  //   // if we haven't seen a decoded buffer for 700ms, ask for a keyframe
+  //   if (now - ctx.last_video_buf_ts > 700 * GST_MSECOND) {
+  //     if (now - ctx.last_keyunit_request_ts >= 500 * GST_MSECOND) {
+  //       gboolean sent = FALSE;
+  //       if (ctx.predecode_queue) {
+  //         auto* ev = gst_video_event_new_upstream_force_key_unit(GST_CLOCK_TIME_NONE, TRUE, 0);
+  //         sent = gst_element_send_event(ctx.predecode_queue, ev);
+  //         g_print("Watchdog: requested keyframe via predecode queue: %s\n", sent ? "OK" : "FAILED");
+  //       }
+  //       if (!sent) {
+  //         auto* ev2 = gst_video_event_new_upstream_force_key_unit(GST_CLOCK_TIME_NONE, TRUE, 0);
+  //         sent = gst_element_send_event(jitsibin, ev2);
+  //         g_print("Watchdog: requested keyframe via jitsibin: %s\n", sent ? "OK" : "FAILED");
+  //       }
+  //       if (sent) ctx.last_keyunit_request_ts = now;
+  //     }
+  //   }
+  // });
+  // watchdogTimer->start(200);
 
   int ret = app.exec();
 
   gst_element_set_state(pipeline, GST_STATE_NULL);
   gst_object_unref(pipeline);
-  if (bus) gst_object_unref(bus);
+  // if (bus) gst_object_unref(bus);
   gst_deinit();
   return ret;
 }
