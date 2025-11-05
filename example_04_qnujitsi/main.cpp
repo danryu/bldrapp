@@ -56,12 +56,7 @@ private:
 struct Context {
   GstElement* pipeline {nullptr};
   GstElement* videoconvert {nullptr};
-  // queue inserted between jitsibin and decodebin to isolate decoder; used to send upstream events
-  GstElement* predecode_queue {nullptr};
   GstClockTime last_keyunit_request_ts {0};
-  // queue between decodebin and videoconvert to monitor flow
-  GstElement* postdecode_queue {nullptr};
-  GstClockTime last_video_buf_ts {0};
 };
 
 // decodebin exposes pads depending on the detected codec. For video streams
@@ -84,41 +79,13 @@ static void decodebin_pad_added(GstElement* /*decodebin*/, GstPad* pad, gpointer
   }
   if (!is_video) return;
 
-  GstElement* q = gst_element_factory_make("queue", nullptr);
-  if (!q) { g_printerr("Failed to create queue\n"); return; }
-  g_object_set(q,
-               "leaky", 2,
-               "max-size-buffers", 5,
-               "max-size-bytes", 0,
-               "max-size-time", (guint64)0,
-               NULL);
-
-  gst_bin_add(GST_BIN(self->pipeline), q);
-  gst_element_sync_state_with_parent(q);
-
-  // remember and probe for buffer flow
-  self->postdecode_queue = q;
-  GstPad* qsrc = gst_element_get_static_pad(q, "src");
-  if (qsrc) {
-    gst_pad_add_probe(qsrc, GST_PAD_PROBE_TYPE_BUFFER,
-      [](GstPad* /*pad*/, GstPadProbeInfo* /*info*/, gpointer user_data) -> GstPadProbeReturn {
-        auto* ctx = static_cast<Context*>(user_data);
-        ctx->last_video_buf_ts = gst_util_get_timestamp();
-        return GST_PAD_PROBE_OK;
-      }, self, NULL);
-    gst_object_unref(qsrc);
-  }
-
-  GstPad* qsink = gst_element_get_static_pad(q, "sink");
-  if (!qsink) return;
-  if (gst_pad_is_linked(qsink)) { gst_object_unref(qsink); return; }
-  GstPadLinkReturn linkret = gst_pad_link(pad, qsink);
-  gst_object_unref(qsink);
-  g_print("decodebin -> queue link %s\n", linkret == GST_PAD_LINK_OK ? "OK" : "FAILED");
-
-  if (!gst_element_link(q, self->videoconvert)) {
-    g_printerr("Failed to link queue -> videoconvert\n");
-  }
+  // Directly link decodebin's new pad to videoconvert sink
+  GstPad* vcsink = gst_element_get_static_pad(self->videoconvert, "sink");
+  if (!vcsink) return;
+  if (gst_pad_is_linked(vcsink)) { gst_object_unref(vcsink); return; }
+  GstPadLinkReturn linkret = gst_pad_link(pad, vcsink);
+  gst_object_unref(vcsink);
+  g_print("decodebin -> videoconvert link %s\n", linkret == GST_PAD_LINK_OK ? "OK" : "FAILED");
 }
 
 // When jitsibin exposes a new RTP stream, we create a pre-decode downstream-
@@ -129,38 +96,20 @@ static void jitsibin_pad_added(GstElement* /*jitsibin*/, GstPad* pad, gpointer u
   auto* self = static_cast<Context*>(user_data);
   if (!self || !self->pipeline) return;
 
-  // Create a leaky queue and a decodebin for whatever codec arrives
-  GstElement* q = gst_element_factory_make("queue", nullptr);
+  // Create a decodebin for whatever codec arrives
   GstElement* decodebin = gst_element_factory_make("decodebin", nullptr);
-  if (!q || !decodebin) { g_printerr("Failed to create queue/decodebin\n"); return; }
+  if (!decodebin) { g_printerr("Failed to create decodebin\n"); return; }
 
-  g_object_set(q,
-               "leaky", 2,
-               "max-size-buffers", 50,
-               "max-size-bytes", 0,
-               "max-size-time", (guint64)0,
-               NULL);
-
-  gst_bin_add_many(GST_BIN(self->pipeline), q, decodebin, NULL);
+  gst_bin_add(GST_BIN(self->pipeline), decodebin);
   g_signal_connect(decodebin, "pad-added", GCallback(decodebin_pad_added), self);
-
-  gst_element_sync_state_with_parent(q);
   gst_element_sync_state_with_parent(decodebin);
 
-  // store for upstream keyframe requests
-  self->predecode_queue = q;
-
-  // Link jitsibin pad -> queue sink
-  GstPad* qsink = gst_element_get_static_pad(q, "sink");
-  if (!qsink) return;
-  GstPadLinkReturn linkret = gst_pad_link(pad, qsink);
-  gst_object_unref(qsink);
-  g_print("jitsibin -> queue link %s\n", linkret == GST_PAD_LINK_OK ? "OK" : "FAILED");
-
-  // queue -> decodebin
-  if (!gst_element_link(q, decodebin)) {
-    g_printerr("Failed to link queue -> decodebin\n");
-  }
+  // Link jitsibin pad -> decodebin sink
+  GstPad* dbsink = gst_element_get_static_pad(decodebin, "sink");
+  if (!dbsink) return;
+  GstPadLinkReturn linkret = gst_pad_link(pad, dbsink);
+  gst_object_unref(dbsink);
+  g_print("jitsibin -> decodebin link %s\n", linkret == GST_PAD_LINK_OK ? "OK" : "FAILED");
 }
 
 // Surface completion from jitsibin by posting EOS so the app can exit
