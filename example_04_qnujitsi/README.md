@@ -1,12 +1,30 @@
 ## qnujitsi
 
-qnujitsi is a minimal Qt/QML application that demonstrates real-time audio/video send/receive into a Jitsi Meet conference using the custom `jitsibin` GStreamer element (from gstjitsimeet). It renders video via `qml6glsink` using Qt Quick’s OpenGL backend and publishes local test AV.
+qnujitsi is a minimal Qt/QML application that demonstrates real-time audio/video send/receive into a Jitsi Meet conference using the custom `jitsibin` GStreamer element (from gstjitsimeet). It renders video via `qml6glsink` using Qt Quick's OpenGL backend and publishes local test AV.
+
+## Build
+rm -fr build/ && cmake -B build -S . && cmake --build build -j
+
+## Run example
+GST_DEBUG=3 ./build/qnujitsi ABCDABCD.ki.kormix.io video
+
+### Resolution Configuration
+
+The application now supports configurable video resolutions:
+- **Default**: 1280x720 (720p)
+- **Usage**: `./qnujitsi <HOST> <ROOM> [WIDTH HEIGHT]`
+- **Examples**:
+  - 480p: `./qnujitsi meet.jit.si myroom 854 480`
+  - 720p: `./qnujitsi meet.jit.si myroom 1280 720`
+  - 1080p: `./qnujitsi meet.jit.si myroom 1920 1080`
+
+The encoder bitrate automatically scales based on resolution (approximately 0.1 bits per pixel at 30fps).
 
 ### High-level overview
 - **UI**: Qt Quick window with a QML item used by `qml6glsink` to display GL textures.
 - **Network/Signaling**: `jitsibin` handles XMPP signaling, ICE, DTLS-SRTP, RTP/RTCP, and payloaders/depayloaders.
 - **Receive path**: `jitsibin → queue (leaky) → decodebin → queue (leaky) → videoconvert → glupload → qml6glsink`.
-- **Send path**: `videotestsrc → videoconvert → av1enc → av1parse → jitsibin:video_sink` and `audiotestsrc → opusenc → jitsibin:audio_sink`.
+- **Send path**: `videotestsrc → videoscale → capsfilter → videoconvert → av1enc → av1parse → jitsibin:video_sink` and `audiotestsrc → opusenc → jitsibin:audio_sink`.
 
 ### Why a leaky queue before and after decode?
 - The queues decouple the live network from the (potentially) slow/blocked decoder and rendering path.
@@ -46,6 +64,8 @@ To handle corrupt frames and keep the pipeline responsive:
 ### CPU considerations
 - Avoid a busy bus-drain loop; use moderate timer cadence and per-tick cap.
 - AV1 encoding is expensive; for receive-only tests, disable the send path or use a cheaper encoder.
+- Higher resolutions (720p, 1080p) require significantly more CPU for encoding. The encoder uses `cpu-used=8` for maximum speed at the cost of compression efficiency.
+- For better quality at the cost of CPU, reduce `cpu-used` (range 0-8, lower = better quality/slower).
 
 ### Debug tips
 - Environment: `GST_DEBUG=3` (and add `videodecoder:4,rtpsession:4,rtpbin:5` for deeper insight).
