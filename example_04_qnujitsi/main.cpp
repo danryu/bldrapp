@@ -11,7 +11,6 @@
 #include <QQuickWindow>
 #include <QQuickItem>
 #include <QRunnable>
-#include <QTimer>
 
 #include <gst/gst.h>
 #include <gst/video/video.h>
@@ -190,6 +189,8 @@ int main(int argc, char* argv[]) {
                // Ensure sender uses VP9 so jitsibin selects rtpvp9pay
                "video-codec", 3, /* Vp9 enum value */
                "receive-limit", 3,
+               // Request unlimited receive resolution (-1 -> no constraint, see JVB docs)
+               "receive-max-height", -1,
                "force-play", TRUE,
                "insecure", TRUE,
                NULL);
