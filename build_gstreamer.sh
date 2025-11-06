@@ -320,12 +320,13 @@ meson setup builddir \
 	-Dgst-plugins-good:videomixer=enabled \
 	-Dgst-plugins-good:audioparsers=enabled \
 	-Dgst-plugins-good:autodetect=enabled \
-	-Dgst-plugins-bad:dtls=enabled \
-	-Dgst-plugins-bad:srtp=enabled \
-	-Dgst-plugins-bad:videoparsers=enabled \
 	-Dgst-plugins-good:vpx=enabled \
 	-Dgst-plugins-good:osxvideo=enabled \
 	-Dgst-plugins-good:qt6=enabled \
+	-Dgst-plugins-bad:dtls=enabled \
+	-Dgst-plugins-bad:srtp=enabled \
+	-Dgst-plugins-bad:videoparsers=enabled \
+	-Dgst-plugins-bad:applemedia=enabled \
 	-Dlibnice=enabled \
 	-Dlibnice:crypto-library=openssl \
 	-Dlibnice:gstreamer=enabled \
