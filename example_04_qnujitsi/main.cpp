@@ -3,8 +3,8 @@
 //
 // This app demonstrates sending and receiving media to a Jitsi Meet conference
 // using the custom `jitsibin` GStreamer element. Video is rendered via
-// `qml6glsink` into a QML item. The receive pipeline is built dynamically to
-// accommodate whatever codec the remote sends (should be VP9 though)
+// `qml6glsink` into a QML item. The receive pipeline uses decodebin which
+// automatically selects the appropriate decoder (hardware-accelerated when available)
 
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
@@ -44,6 +44,47 @@ struct Context {
   GstElement* videoconvert {nullptr};
 };
 
+// Helper function to print caps from a pad
+static void print_pad_caps(const char* element_name, const char* pad_name, GstElement* element) {
+  GstPad* pad = gst_element_get_static_pad(element, pad_name);
+  if (!pad) {
+    g_print("  %s:%s - pad not found\n", element_name, pad_name);
+    return;
+  }
+  GstCaps* caps = gst_pad_get_current_caps(pad);
+  if (caps) {
+    gchar* caps_str = gst_caps_to_string(caps);
+    g_print("  %s:%s caps: %s\n", element_name, pad_name, caps_str);
+    g_free(caps_str);
+    gst_caps_unref(caps);
+  } else {
+    g_print("  %s:%s - no caps negotiated yet\n", element_name, pad_name);
+  }
+  gst_object_unref(pad);
+}
+
+// Data structure for caps debugging timeout callback
+struct CapsDebugData {
+  GstElement* videoscale;
+  GstElement* videncdr;
+  GstElement* h264parse;
+  GstElement* video_queue;
+};
+
+// Timeout callback to print caps after pipeline starts
+static gboolean print_caps_timeout(gpointer user_data) {
+  auto* data = static_cast<CapsDebugData*>(user_data);
+  g_print("\n=== Caps inspection (after pipeline start) ===\n");
+  print_pad_caps("videoscale", "src", data->videoscale);
+  print_pad_caps("vtenc_h264", "sink", data->videncdr);
+  print_pad_caps("vtenc_h264", "src", data->videncdr);
+  print_pad_caps("h264parse", "sink", data->h264parse);
+  print_pad_caps("h264parse", "src", data->h264parse);
+  print_pad_caps("queue", "src", data->video_queue);
+  g_print("==============================================\n\n");
+  return FALSE; // One-shot timer
+}
+
 // decodebin exposes pads depending on the detected codec. For video streams
 // we insert a downstream-leaky queue before videoconvert to prevent render
 // stalls from backing up decode, and we probe its src pad to observe decoded
@@ -73,8 +114,8 @@ static void decodebin_pad_added(GstElement* /*decodebin*/, GstPad* pad, gpointer
   g_print("decodebin -> videoconvert link %s\n", linkret == GST_PAD_LINK_OK ? "OK" : "FAILED");
 }
 
-// When jitsibin exposes a new RTP stream, we create  decodebin to
-// handle whatever codec arrives - should be VP9 though
+// When jitsibin exposes a new RTP stream, we create decodebin to
+// handle whatever codec arrives - should be H.264
 static void jitsibin_pad_added(GstElement* /*jitsibin*/, GstPad* pad, gpointer user_data) {
   auto* self = static_cast<Context*>(user_data);
   if (!self || !self->pipeline) return;
@@ -152,33 +193,48 @@ int main(int argc, char* argv[]) {
   GstElement* glupload = gst_element_factory_make("glupload", nullptr);
   GstElement* sink = gst_element_factory_make("qml6glsink", nullptr);
 
-  // Send path elements (mirror receiver.cpp behavior)
+  // Send path elements
   GstElement* videotestsrc = gst_element_factory_make("videotestsrc", nullptr);
   GstElement* videoscale = gst_element_factory_make("videoscale", nullptr);
-  GstElement* videncdr = gst_element_factory_make("vp9enc", nullptr);
+  GstElement* videncdr = gst_element_factory_make("vtenc_h264", nullptr);
+  GstElement* h264parse = gst_element_factory_make("h264parse", nullptr);
+  GstElement* video_queue = gst_element_factory_make("queue", nullptr);
   GstElement* audiotestsrc = gst_element_factory_make("audiotestsrc", nullptr);
   GstElement* opusenc = gst_element_factory_make("opusenc", nullptr);
 
-  if (!pipeline || !jitsibin || !videoconvert || !glupload || !sink ||
-      !videotestsrc || !videoscale ||
-      !videncdr || !audiotestsrc || !opusenc) {
-    g_printerr("Failed to create one or more GStreamer elements.\n");
-    return 1;
-  }
+  // Check each element creation and report which one failed
+  if (!pipeline) { g_printerr("Failed to create pipeline\n"); return 1; }
+  if (!jitsibin) { g_printerr("Failed to create jitsibin\n"); return 1; }
+  if (!videoconvert) { g_printerr("Failed to create videoconvert\n"); return 1; }
+  if (!glupload) { g_printerr("Failed to create glupload\n"); return 1; }
+  if (!sink) { g_printerr("Failed to create qml6glsink\n"); return 1; }
+  if (!videotestsrc) { g_printerr("Failed to create videotestsrc\n"); return 1; }
+  if (!videoscale) { g_printerr("Failed to create videoscale\n"); return 1; }
+  if (!videncdr) { g_printerr("Failed to create vtenc_h264 encoder\n"); return 1; }
+  if (!h264parse) { g_printerr("Failed to create h264parse\n"); return 1; }
+  if (!video_queue) { g_printerr("Failed to create video queue\n"); return 1; }
+  if (!audiotestsrc) { g_printerr("Failed to create audiotestsrc\n"); return 1; }
+  if (!opusenc) { g_printerr("Failed to create opusenc\n"); return 1; }
   
-  // Set resolution caps for the video source
-  GstCaps* video_caps = gst_caps_new_simple("video/x-raw",
-                                             "width", G_TYPE_INT, video_width,
-                                             "height", G_TYPE_INT, video_height,
-                                             "framerate", GST_TYPE_FRACTION, 30, 1,
-                                             NULL);
-
-
-  // for VP9 encoder
+  // Configure queue for low-latency (leaky downstream to prevent buffering)
+  g_object_set(G_OBJECT(video_queue),
+              "max-size-buffers", 0, // No buffer limit
+              "max-size-time", 0,    // No time limit
+              "max-size-bytes", 0,  // No byte limit
+              "leaky", 2,           // GST_QUEUE_LEAK_DOWNSTREAM - drop old buffers if downstream is slow
+              NULL);
+  
+  // Configure H.264 encoder for low-latency real-time encoding
+  // VideoToolbox encoder should handle 720p30 easily with hardware acceleration
   g_object_set(G_OBJECT(videncdr),
-              "deadline", 1, 
-              "cpu-used", 8,
-              "lag-in-frames", 0,
+              "realtime", TRUE,
+              "allow-frame-reordering", FALSE, // Disable B-frames for lower latency
+              NULL);
+  
+  // Configure h264parse for RTP
+  // Note: h264parse will convert avc format to byte-stream if needed by downstream
+  g_object_set(G_OBJECT(h264parse),
+              "config-interval", 1, // Send SPS/PPS with every IDR
               NULL); 
 
   // Configure jitsibin (conference details, codec preferences, and behavior)
@@ -186,11 +242,11 @@ int main(int argc, char* argv[]) {
                "server", host,
                "room", room,
                "nick", "qnujitsi_user",
-               // Ensure sender uses VP9 so jitsibin selects rtpvp9pay
-               "video-codec", 3, /* Vp9 enum value */
+               // Ensure sender uses H.264 so jitsibin selects rtph264pay
+               "video-codec", 1, /* H264 enum value */
                "receive-limit", 3,
                // Request unlimited receive resolution (-1 -> no constraint, see JVB docs)
-               "receive-max-height", -1,
+               "receive-max-height", 720,
                "force-play", TRUE,
                "insecure", TRUE,
                NULL);
@@ -202,7 +258,7 @@ int main(int argc, char* argv[]) {
                    // receive path
                    videoconvert, glupload, sink,
                    // send path
-                   videotestsrc, videoscale, videncdr,
+                   videotestsrc, videoscale, videncdr, h264parse, video_queue,
                    audiotestsrc, opusenc,
                    NULL);
 
@@ -217,41 +273,44 @@ int main(int argc, char* argv[]) {
   g_object_set(G_OBJECT(audiotestsrc), "is-live", TRUE, "wave", 8, NULL);
   
   g_print("=== Video send pipeline ===\n");
-  g_print("videotestsrc -> videoscale (I420,width,height,30fps) -> vp9enc -> jitsibin:video_sink\n");
-  
-  // Calculate possible target bitrate based on resolution (roughly 0.15 bits per pixel at 30fps)
-  int target_bitrate = (video_width * video_height * 30 * 0.15) / 1000; // in kbps
-  g_print("Encoder target bitrate (est): %d kbps\n", target_bitrate);
-  
-  // (intentionally minimal) keep encoder defaults; we force 8-bit via input caps below
+  g_print("videotestsrc -> videoscale -> vtenc_h264 -> h264parse -> queue(leaky) -> jitsibin:video_sink\n");
+  g_print("Encoder configured: realtime=TRUE, allow-frame-reordering=FALSE\n");
 
   // Link videotestsrc to videoscale
   if (!gst_element_link(videotestsrc, videoscale)) {
     g_printerr("Failed to link videotestsrc -> videoscale\n");
     return 1;
   }
-  // Link videoscale directly to encoder with explicit caps (I420, size, fps)
-  {
-    GstCaps* send_caps = gst_caps_new_simple("video/x-raw",
-                                            "format", G_TYPE_STRING, "I420",
-                                            "width", G_TYPE_INT, video_width,
-                                            "height", G_TYPE_INT, video_height,
-                                            "framerate", GST_TYPE_FRACTION, 30, 1,
-                                            NULL);
-    if (!gst_element_link_filtered(videoscale, videncdr, send_caps)) {
-      g_printerr("Failed to link videoscale -> vp9enc with filtered caps (I420/%dx%d@30)\n", video_width, video_height);
-      gst_caps_unref(send_caps);
-      return 1;
-    }
+  
+  // Link videoscale to encoder with explicit caps (I420, size, fps)
+  GstCaps* send_caps = gst_caps_new_simple("video/x-raw",
+                                          "format", G_TYPE_STRING, "I420",
+                                          "width", G_TYPE_INT, video_width,
+                                          "height", G_TYPE_INT, video_height,
+                                          "framerate", GST_TYPE_FRACTION, 30, 1,
+                                          NULL);
+  if (!gst_element_link_filtered(videoscale, videncdr, send_caps)) {
+    g_printerr("Failed to link videoscale -> vtenc_h264 with filtered caps (I420/%dx%d@30)\n", video_width, video_height);
     gst_caps_unref(send_caps);
-  }
-
-  // Link the rest of the chain
-  // (no additional links needed; videoscale is linked to videncdr above)
-  if (!gst_element_link_pads(videncdr, NULL, jitsibin, "video_sink")) {
-    g_printerr("Failed to link videncdr -> jitsibin video_sink\n");
     return 1;
   }
+  gst_caps_unref(send_caps);
+
+  // Link encoder -> h264parse -> queue -> jitsibin
+  if (!gst_element_link(videncdr, h264parse)) {
+    g_printerr("Failed to link vtenc_h264 -> h264parse\n");
+    return 1;
+  }
+  if (!gst_element_link(h264parse, video_queue)) {
+    g_printerr("Failed to link h264parse -> queue\n");
+    return 1;
+  }
+  if (!gst_element_link_pads(video_queue, NULL, jitsibin, "video_sink")) {
+    g_printerr("Failed to link queue -> jitsibin video_sink\n");
+    return 1;
+  }
+  
+  // Link audio path
   if (!gst_element_link_many(audiotestsrc, opusenc, NULL)) {
     g_printerr("Failed to link audiotestsrc -> opusenc\n");
     return 1;
@@ -280,6 +339,12 @@ int main(int argc, char* argv[]) {
 
   // Start the pipeline in the render thread
   root->scheduleRenderJob(new SetPlaying(pipeline), QQuickWindow::BeforeSynchronizingStage);
+  
+  // Set up a timeout to print caps after pipeline starts
+  static CapsDebugData debug_data{videoscale, videncdr, h264parse, video_queue};
+  
+  // Schedule caps printing after 500ms
+  g_timeout_add(500, print_caps_timeout, &debug_data);
 
   int ret = app.exec();
 
