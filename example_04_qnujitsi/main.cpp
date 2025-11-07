@@ -44,51 +44,7 @@ struct Context {
   GstElement* videoconvert {nullptr};
 };
 
-// Helper function to print caps from a pad
-static void print_pad_caps(const char* element_name, const char* pad_name, GstElement* element) {
-  GstPad* pad = gst_element_get_static_pad(element, pad_name);
-  if (!pad) {
-    g_print("  %s:%s - pad not found\n", element_name, pad_name);
-    return;
-  }
-  GstCaps* caps = gst_pad_get_current_caps(pad);
-  if (caps) {
-    gchar* caps_str = gst_caps_to_string(caps);
-    g_print("  %s:%s caps: %s\n", element_name, pad_name, caps_str);
-    g_free(caps_str);
-    gst_caps_unref(caps);
-  } else {
-    g_print("  %s:%s - no caps negotiated yet\n", element_name, pad_name);
-  }
-  gst_object_unref(pad);
-}
-
-// Data structure for caps debugging timeout callback
-struct CapsDebugData {
-  GstElement* videoscale;
-  GstElement* videncdr;
-  GstElement* h264parse;
-  GstElement* video_queue;
-};
-
-// Timeout callback to print caps after pipeline starts
-static gboolean print_caps_timeout(gpointer user_data) {
-  auto* data = static_cast<CapsDebugData*>(user_data);
-  g_print("\n=== Caps inspection (after pipeline start) ===\n");
-  print_pad_caps("videoscale", "src", data->videoscale);
-  print_pad_caps("vtenc_h264", "sink", data->videncdr);
-  print_pad_caps("vtenc_h264", "src", data->videncdr);
-  print_pad_caps("h264parse", "sink", data->h264parse);
-  print_pad_caps("h264parse", "src", data->h264parse);
-  print_pad_caps("queue", "src", data->video_queue);
-  g_print("==============================================\n\n");
-  return FALSE; // One-shot timer
-}
-
-// decodebin exposes pads depending on the detected codec. For video streams
-// we insert a downstream-leaky queue before videoconvert to prevent render
-// stalls from backing up decode, and we probe its src pad to observe decoded
-// buffer flow for the watchdog.
+// decodebin exposes pads depending on the detected codec
 static void decodebin_pad_added(GstElement* /*decodebin*/, GstPad* pad, gpointer user_data) {
   auto* self = static_cast<Context*>(user_data);
   if (!self || !self->videoconvert || !self->pipeline) return;
@@ -105,13 +61,34 @@ static void decodebin_pad_added(GstElement* /*decodebin*/, GstPad* pad, gpointer
   }
   if (!is_video) return;
 
-  // Directly link decodebin's new pad to videoconvert sink
-  GstPad* vcsink = gst_element_get_static_pad(self->videoconvert, "sink");
-  if (!vcsink) return;
-  if (gst_pad_is_linked(vcsink)) { gst_object_unref(vcsink); return; }
-  GstPadLinkReturn linkret = gst_pad_link(pad, vcsink);
-  gst_object_unref(vcsink);
-  g_print("decodebin -> videoconvert link %s\n", linkret == GST_PAD_LINK_OK ? "OK" : "FAILED");
+  // Insert a downstream-leaky queue before videoconvert to absorb bursts and
+  // allow decoder reconfigure without stalling the upstream.
+  GstElement* q = gst_element_factory_make("queue", nullptr);
+  if (!q) return;
+  g_object_set(G_OBJECT(q),
+               "leaky", 2 /* downstream */, // GStreamer queue leaky enum
+               "max-size-buffers", 0,
+               "max-size-bytes", 0,
+               "max-size-time", 0,
+               NULL);
+
+  gst_bin_add(GST_BIN(self->pipeline), q);
+  gst_element_sync_state_with_parent(q);
+
+  // Link: pad -> queue -> videoconvert
+  GstPad* qsink = gst_element_get_static_pad(q, "sink");
+  if (!qsink) return;
+  GstPadLinkReturn linkret = gst_pad_link(pad, qsink);
+  gst_object_unref(qsink);
+  if (linkret != GST_PAD_LINK_OK) {
+    g_printerr("Failed to link decodebin pad -> queue\n");
+    return;
+  }
+  if (!gst_element_link(q, self->videoconvert)) {
+    g_printerr("Failed to link queue -> videoconvert\n");
+    return;
+  }
+  g_print("decodebin -> queue(leaky) -> videoconvert link OK\n");
 }
 
 // When jitsibin exposes a new RTP stream, we create decodebin to
@@ -125,15 +102,40 @@ static void jitsibin_pad_added(GstElement* /*jitsibin*/, GstPad* pad, gpointer u
   if (!decodebin) { g_printerr("Failed to create decodebin\n"); return; }
 
   gst_bin_add(GST_BIN(self->pipeline), decodebin);
+  // Keep default autoplug selection (prefer vtdec hardware decoder on macOS)
   g_signal_connect(decodebin, "pad-added", GCallback(decodebin_pad_added), self);
   gst_element_sync_state_with_parent(decodebin);
 
-  // Link jitsibin pad -> decodebin sink
-  GstPad* dbsink = gst_element_get_static_pad(decodebin, "sink");
-  if (!dbsink) return;
-  GstPadLinkReturn linkret = gst_pad_link(pad, dbsink);
-  gst_object_unref(dbsink);
-  g_print("jitsibin -> decodebin link %s\n", linkret == GST_PAD_LINK_OK ? "OK" : "FAILED");
+  // Insert an upstream leaky queue before decodebin to absorb bursts from RTP
+  GstElement* q_up = gst_element_factory_make("queue", nullptr);
+  if (!q_up) { g_printerr("Failed to create upstream queue\n"); return; }
+  g_object_set(G_OBJECT(q_up),
+               "leaky", 2 /* downstream */,
+               "max-size-buffers", 0,
+               "max-size-bytes", 0,
+               "max-size-time", 0,
+               NULL);
+
+  gst_bin_add(GST_BIN(self->pipeline), q_up);
+  gst_element_sync_state_with_parent(q_up);
+
+  // Link jitsibin pad -> queue
+  {
+    GstPad* qsink = gst_element_get_static_pad(q_up, "sink");
+    if (!qsink) return;
+    GstPadLinkReturn linkret = gst_pad_link(pad, qsink);
+    gst_object_unref(qsink);
+    if (linkret != GST_PAD_LINK_OK) {
+      g_printerr("Failed to link jitsibin pad -> upstream queue\n");
+      return;
+    }
+  }
+  // Link queue -> decodebin
+  if (!gst_element_link(q_up, decodebin)) {
+    g_printerr("Failed to link upstream queue -> decodebin\n");
+    return;
+  }
+  g_print("jitsibin -> queue(leaky) -> decodebin link OK\n");
 }
 
 // Surface completion from jitsibin by posting EOS so the app can exit
@@ -202,19 +204,13 @@ int main(int argc, char* argv[]) {
   GstElement* audiotestsrc = gst_element_factory_make("audiotestsrc", nullptr);
   GstElement* opusenc = gst_element_factory_make("opusenc", nullptr);
 
-  // Check each element creation and report which one failed
-  if (!pipeline) { g_printerr("Failed to create pipeline\n"); return 1; }
-  if (!jitsibin) { g_printerr("Failed to create jitsibin\n"); return 1; }
-  if (!videoconvert) { g_printerr("Failed to create videoconvert\n"); return 1; }
-  if (!glupload) { g_printerr("Failed to create glupload\n"); return 1; }
-  if (!sink) { g_printerr("Failed to create qml6glsink\n"); return 1; }
-  if (!videotestsrc) { g_printerr("Failed to create videotestsrc\n"); return 1; }
-  if (!videoscale) { g_printerr("Failed to create videoscale\n"); return 1; }
-  if (!videncdr) { g_printerr("Failed to create vtenc_h264 encoder\n"); return 1; }
-  if (!h264parse) { g_printerr("Failed to create h264parse\n"); return 1; }
-  if (!video_queue) { g_printerr("Failed to create video queue\n"); return 1; }
-  if (!audiotestsrc) { g_printerr("Failed to create audiotestsrc\n"); return 1; }
-  if (!opusenc) { g_printerr("Failed to create opusenc\n"); return 1; }
+  if (!pipeline || !jitsibin || !videoconvert || !glupload || !sink ||
+    !videotestsrc || !videoscale ||
+    !videncdr || !h264parse || !video_queue ||
+    !audiotestsrc || !opusenc) {
+    g_printerr("Failed to create one or more GStreamer elements.\n");
+    return 1;
+  }
   
   // Configure queue for low-latency (leaky downstream to prevent buffering)
   g_object_set(G_OBJECT(video_queue),
@@ -339,12 +335,6 @@ int main(int argc, char* argv[]) {
 
   // Start the pipeline in the render thread
   root->scheduleRenderJob(new SetPlaying(pipeline), QQuickWindow::BeforeSynchronizingStage);
-  
-  // Set up a timeout to print caps after pipeline starts
-  static CapsDebugData debug_data{videoscale, videncdr, h264parse, video_queue};
-  
-  // Schedule caps printing after 500ms
-  g_timeout_add(500, print_caps_timeout, &debug_data);
 
   int ret = app.exec();
 
