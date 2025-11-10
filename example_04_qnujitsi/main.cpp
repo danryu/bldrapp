@@ -13,6 +13,7 @@
 #include <QRunnable>
 
 #include <gst/gst.h>
+#include <gst/gstdebugutils.h>
 #include <gst/video/video.h>
 #include <gst/video/video-event.h>
 
@@ -136,6 +137,12 @@ static void jitsibin_pad_added(GstElement* /*jitsibin*/, GstPad* pad, gpointer u
     return;
   }
   g_print("jitsibin -> queue(leaky) -> decodebin link OK\n");
+
+  char dot_name[128];
+  g_snprintf(dot_name, sizeof(dot_name), "receive_%s", GST_PAD_NAME(pad));
+  GST_DEBUG_BIN_TO_DOT_FILE(GST_BIN(self->pipeline),
+                            GST_DEBUG_GRAPH_SHOW_ALL,
+                            dot_name);
 }
 
 // Surface completion from jitsibin by posting EOS so the app can exit
@@ -332,6 +339,10 @@ int main(int argc, char* argv[]) {
   if (!videoItem) return 1;
 
   g_object_set(G_OBJECT(sink), "widget", videoItem, NULL);
+
+  GST_DEBUG_BIN_TO_DOT_FILE(GST_BIN(pipeline),
+                            GST_DEBUG_GRAPH_SHOW_ALL,
+                            "qnujitsi");
 
   // Start the pipeline in the render thread
   root->scheduleRenderJob(new SetPlaying(pipeline), QQuickWindow::BeforeSynchronizingStage);
