@@ -11,11 +11,14 @@
 #include <QQuickWindow>
 #include <QQuickItem>
 #include <QRunnable>
+#include <thread>
 
 #include <gst/gst.h>
 #include <gst/gstdebugutils.h>
 #include <gst/video/video.h>
 #include <gst/video/video-event.h>
+
+#include <vector>
 
 // Forward declare static plugin initialization function
 extern "C" void gst_init_static_plugins(void);
@@ -38,59 +41,15 @@ private:
   GstElement* pipeline_;
 };
 
-// Context carries shared element references and timing state used by
-// dynamic pad handlers
+// Context carries pipeline and a pool of per-slot receive elements
 struct Context {
   GstElement* pipeline {nullptr};
-  GstElement* videoconvert {nullptr};
+  std::vector<GstElement*> videoconverts;
+  std::vector<GstElement*> gluploads;
+  std::vector<GstElement*> glcolorconverts;
+  std::vector<GstElement*> sinks;
+  std::vector<bool> in_use;
 };
-
-// decodebin exposes pads depending on the detected codec
-static void decodebin_pad_added(GstElement* /*decodebin*/, GstPad* pad, gpointer user_data) {
-  auto* self = static_cast<Context*>(user_data);
-  if (!self || !self->videoconvert || !self->pipeline) return;
-
-  GstCaps* caps = gst_pad_get_current_caps(pad);
-  bool is_video = false;
-  if (caps) {
-    GstStructure* s = gst_caps_get_structure(caps, 0);
-    if (s) {
-      const char* name = gst_structure_get_name(s);
-      if (name && g_str_has_prefix(name, "video/")) is_video = true;
-    }
-    gst_caps_unref(caps);
-  }
-  if (!is_video) return;
-
-  // Insert a downstream-leaky queue before videoconvert to absorb bursts and
-  // allow decoder reconfigure without stalling the upstream.
-  GstElement* q = gst_element_factory_make("queue", nullptr);
-  if (!q) return;
-  g_object_set(G_OBJECT(q),
-               "leaky", 2 /* downstream */, // GStreamer queue leaky enum
-               "max-size-buffers", 0,
-               "max-size-bytes", 0,
-               "max-size-time", 0,
-               NULL);
-
-  gst_bin_add(GST_BIN(self->pipeline), q);
-  gst_element_sync_state_with_parent(q);
-
-  // Link: pad -> queue -> videoconvert
-  GstPad* qsink = gst_element_get_static_pad(q, "sink");
-  if (!qsink) return;
-  GstPadLinkReturn linkret = gst_pad_link(pad, qsink);
-  gst_object_unref(qsink);
-  if (linkret != GST_PAD_LINK_OK) {
-    g_printerr("Failed to link decodebin pad -> queue\n");
-    return;
-  }
-  if (!gst_element_link(q, self->videoconvert)) {
-    g_printerr("Failed to link queue -> videoconvert\n");
-    return;
-  }
-  g_print("decodebin -> queue(leaky) -> videoconvert link OK\n");
-}
 
 // When jitsibin exposes a new RTP stream, we create decodebin to
 // handle whatever codec arrives - should be H.264
@@ -98,16 +57,47 @@ static void jitsibin_pad_added(GstElement* /*jitsibin*/, GstPad* pad, gpointer u
   auto* self = static_cast<Context*>(user_data);
   if (!self || !self->pipeline) return;
 
-  // Create a decodebin for whatever codec arrives
-  GstElement* decodebin = gst_element_factory_make("decodebin", nullptr);
-  if (!decodebin) { g_printerr("Failed to create decodebin\n"); return; }
+  // Inspect pad caps to choose the appropriate receive path
+  bool is_rtp_h264 = false;
+  bool is_raw_h264 = false;
+  {
+    GstCaps* pcaps = gst_pad_get_current_caps(pad);
+    if (!pcaps) pcaps = gst_pad_query_caps(pad, nullptr);
+    if (pcaps) {
+      char* caps_str = gst_caps_to_string(pcaps);
+      g_print("Incoming pad %s caps: %s\n", GST_PAD_NAME(pad), caps_str ? caps_str : "(null)");
+      g_free(caps_str);
+      if (GstStructure* s = gst_caps_get_structure(pcaps, 0)) {
+        const char* name = gst_structure_get_name(s);
+        if (name) {
+          if (g_strcmp0(name, "application/x-rtp") == 0) {
+            const char* enc = gst_structure_get_string(s, "encoding-name");
+            if (enc && g_ascii_strcasecmp(enc, "H264") == 0) is_rtp_h264 = true;
+          } else if (g_strcmp0(name, "video/x-h264") == 0) {
+            is_raw_h264 = true;
+          }
+        }
+      }
+      gst_caps_unref(pcaps);
+    }
+  }
+  if (!is_rtp_h264 && !is_raw_h264) {
+    // Default to RTP H264 if undetermined; Jitsi typically delivers RTP
+    is_rtp_h264 = true;
+  }
+  g_print("Incoming pad %s: is_rtp_h264=%d is_raw_h264=%d (defaulted if unknown)\n", GST_PAD_NAME(pad), is_rtp_h264, is_raw_h264);
 
-  gst_bin_add(GST_BIN(self->pipeline), decodebin);
-  // Keep default autoplug selection (prefer vtdec hardware decoder on macOS)
-  g_signal_connect(decodebin, "pad-added", GCallback(decodebin_pad_added), self);
-  gst_element_sync_state_with_parent(decodebin);
+  // Choose a free video slot
+  int slot_index = -1;
+  for (size_t i = 0; i < self->in_use.size(); ++i) {
+    if (!self->in_use[i]) { slot_index = static_cast<int>(i); break; }
+  }
+  if (slot_index < 0) {
+    g_printerr("No available video slots; ignoring new incoming pad %s\n", GST_PAD_NAME(pad));
+    return;
+  }
 
-  // Insert an upstream leaky queue before decodebin to absorb bursts from RTP
+  // Insert an upstream leaky queue before depay/parse to absorb bursts
   GstElement* q_up = gst_element_factory_make("queue", nullptr);
   if (!q_up) { g_printerr("Failed to create upstream queue\n"); return; }
   g_object_set(G_OBJECT(q_up),
@@ -117,8 +107,41 @@ static void jitsibin_pad_added(GstElement* /*jitsibin*/, GstPad* pad, gpointer u
                "max-size-time", 0,
                NULL);
 
-  gst_bin_add(GST_BIN(self->pipeline), q_up);
+  // Explicit H.264 receive chain: [rtph264depay?] -> h264parse -> vtdec/avdec_h264 -> queue(leaky) -> videoconvert(slot)
+  GstElement* depay = is_rtp_h264 ? gst_element_factory_make("rtph264depay", nullptr) : nullptr;
+  GstElement* parse = gst_element_factory_make("h264parse", nullptr);
+  GstElement* dec = gst_element_factory_make("vtdec", nullptr);
+  if (!dec) dec = gst_element_factory_make("avdec_h264", nullptr);
+  GstElement* q_down = gst_element_factory_make("queue", nullptr);
+  if ((!is_rtp_h264 && !is_raw_h264) || !parse || !dec || !q_down || (is_rtp_h264 && !depay)) {
+    g_printerr("Failed to create H264 receive chain elements\n");
+    return;
+  }
+  // Force parser to not passthrough and normalize to avc/au
+  g_object_set(G_OBJECT(parse),
+               "disable-passthrough", TRUE,
+               NULL);
+  // Enable realtime on decoders that support it (e.g., vtdec_h264)
+  if (g_object_class_find_property(G_OBJECT_GET_CLASS(dec), "realtime")) {
+    g_object_set(G_OBJECT(dec), "realtime", TRUE, NULL);
+  }
+  g_object_set(G_OBJECT(q_down),
+               "leaky", 2 /* downstream */,
+               "max-size-buffers", 0,
+               "max-size-bytes", 0,
+               "max-size-time", 0,
+               NULL);
+
+  if (is_rtp_h264) {
+    gst_bin_add_many(GST_BIN(self->pipeline), q_up, depay, parse, dec, q_down, NULL);
+  } else {
+    gst_bin_add_many(GST_BIN(self->pipeline), q_up, parse, dec, q_down, NULL);
+  }
   gst_element_sync_state_with_parent(q_up);
+  if (is_rtp_h264) gst_element_sync_state_with_parent(depay);
+  gst_element_sync_state_with_parent(parse);
+  gst_element_sync_state_with_parent(dec);
+  gst_element_sync_state_with_parent(q_down);
 
   // Link jitsibin pad -> queue
   {
@@ -131,12 +154,49 @@ static void jitsibin_pad_added(GstElement* /*jitsibin*/, GstPad* pad, gpointer u
       return;
     }
   }
-  // Link queue -> decodebin
-  if (!gst_element_link(q_up, decodebin)) {
-    g_printerr("Failed to link upstream queue -> decodebin\n");
+  // Link: q_up -> [depay] -> parse
+  if (is_rtp_h264) {
+    if (!gst_element_link(q_up, depay)) {
+      g_printerr("Failed to link q_up -> rtph264depay\n");
+      return;
+    }
+    if (!gst_element_link(depay, parse)) {
+      g_printerr("Failed to link rtph264depay -> h264parse\n");
+      return;
+    }
+  } else {
+    if (!gst_element_link(q_up, parse)) {
+      g_printerr("Failed to link q_up -> h264parse (raw h264)\n");
+      return;
+    }
+  }
+  // Link parse -> dec with caps enforcing avc/au for vtdec compatibility
+  {
+    GstCaps* dec_caps = gst_caps_new_simple("video/x-h264",
+                                            "stream-format", G_TYPE_STRING, "avc",
+                                            "alignment", G_TYPE_STRING, "au",
+                                            NULL);
+    if (!gst_element_link_filtered(parse, dec, dec_caps)) {
+      g_printerr("Failed to link h264parse -> decoder with filtered caps (avc/au)\n");
+      gst_caps_unref(dec_caps);
+      return;
+    }
+    gst_caps_unref(dec_caps);
+  }
+  // Link dec -> q_down
+  if (!gst_element_link(dec, q_down)) {
+    g_printerr("Failed to link decoder -> downstream queue\n");
     return;
   }
-  g_print("jitsibin -> queue(leaky) -> decodebin link OK\n");
+  // Link q_down -> slot videoconvert
+  if (!gst_element_link(q_down, self->videoconverts[slot_index])) {
+    g_printerr("Failed to link downstream queue -> videoconvert (slot %d)\n", slot_index);
+    return;
+  }
+  g_print("H264 receive chain linked OK (slot %d) via %s\n",
+          slot_index, is_rtp_h264 ? "RTP depay" : "raw h264");
+
+  self->in_use[slot_index] = true;
 
   char dot_name[128];
   g_snprintf(dot_name, sizeof(dot_name), "receive_%s", GST_PAD_NAME(pad));
@@ -191,16 +251,17 @@ int main(int argc, char* argv[]) {
   // This ensures the Qt resource system has the shaders registered when needed
   qInitResources_resources();
 
+  // Run a dedicated GLib main loop to service GLib-based IO and timers
+  GMainLoop* glibLoop = g_main_loop_new(nullptr, FALSE);
+  std::thread glibThread([glibLoop]{
+    g_main_loop_run(glibLoop);
+  });
+
   QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
 
   // Build pipeline elements we know upfront
   GstElement* pipeline = gst_pipeline_new(nullptr);
   GstElement* jitsibin = gst_element_factory_make("jitsibin", nullptr);
-
-  // Receive path elements
-  GstElement* videoconvert = gst_element_factory_make("videoconvert", nullptr);
-  GstElement* glupload = gst_element_factory_make("glupload", nullptr);
-  GstElement* sink = gst_element_factory_make("qml6glsink", nullptr);
 
   // Send path elements
   GstElement* videotestsrc = gst_element_factory_make("videotestsrc", nullptr);
@@ -211,7 +272,7 @@ int main(int argc, char* argv[]) {
   GstElement* audiotestsrc = gst_element_factory_make("audiotestsrc", nullptr);
   GstElement* opusenc = gst_element_factory_make("opusenc", nullptr);
 
-  if (!pipeline || !jitsibin || !videoconvert || !glupload || !sink ||
+  if (!pipeline || !jitsibin ||
     !videotestsrc || !videoscale ||
     !videncdr || !h264parse || !video_queue ||
     !audiotestsrc || !opusenc) {
@@ -247,7 +308,7 @@ int main(int argc, char* argv[]) {
                "nick", "qnujitsi_user",
                // Ensure sender uses H.264 so jitsibin selects rtph264pay
                "video-codec", 1, /* H264 enum value */
-               "receive-limit", 3,
+               "receive-limit", 4,
                // Request unlimited receive resolution (-1 -> no constraint, see JVB docs)
                "receive-max-height", 720,
                "force-play", TRUE,
@@ -258,18 +319,10 @@ int main(int argc, char* argv[]) {
   // later when pads appear)
   gst_bin_add_many(GST_BIN(pipeline),
                    jitsibin,
-                   // receive path
-                   videoconvert, glupload, sink,
                    // send path
                    videotestsrc, videoscale, videncdr, h264parse, video_queue,
                    audiotestsrc, opusenc,
                    NULL);
-
-  // Link static tail: videoconvert -> glupload -> qml6glsink
-  if (!gst_element_link_many(videoconvert, glupload, sink, NULL)) {
-    g_printerr("Failed to link videoconvert -> glupload -> qml6glsink\n");
-    return 1;
-  }
 
   // Configure and link send path to publish local test AV
   g_object_set(G_OBJECT(videotestsrc), "is-live", TRUE, NULL);
@@ -324,7 +377,8 @@ int main(int argc, char* argv[]) {
   }
 
   // Connect jitsibin signals to dynamically handle pads
-  Context ctx{pipeline, videoconvert};
+  Context ctx{};
+  ctx.pipeline = pipeline;
   g_signal_connect(jitsibin, "pad-added", GCallback(jitsibin_pad_added), &ctx);
   g_signal_connect(jitsibin, "finished", GCallback(jitsibin_finished), &ctx);
 
@@ -335,10 +389,43 @@ int main(int argc, char* argv[]) {
 
   QQuickWindow* root = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
   if (!root) return 1;
-  QQuickItem* videoItem = root->findChild<QQuickItem*>("videoItem");
-  if (!videoItem) return 1;
+  // Create per-slot receive chains for each predeclared QML item: videoItem0, videoItem1, ...
+  for (int i = 0; ; ++i) {
+    QString objName = QString("videoItem%1").arg(i);
+    QQuickItem* item = root->findChild<QQuickItem*>(objName.toUtf8().constData());
+    if (!item) break;
 
-  g_object_set(G_OBJECT(sink), "widget", videoItem, NULL);
+    GstElement* vconv = gst_element_factory_make("videoconvert", nullptr);
+    GstElement* glup = gst_element_factory_make("glupload", nullptr);
+    GstElement* glcc = gst_element_factory_make("glcolorconvert", nullptr);
+    GstElement* vsink = gst_element_factory_make("qml6glsink", nullptr);
+    if (!vconv || !glup || !glcc || !vsink) {
+      g_printerr("Failed to create receive elements for slot %d\n", i);
+      return 1;
+    }
+    gst_bin_add_many(GST_BIN(pipeline), vconv, glup, glcc, vsink, NULL);
+    if (!gst_element_link_many(vconv, glup, glcc, vsink, NULL)) {
+      g_printerr("Failed to link videoconvert -> glupload -> glcolorconvert -> qml6glsink for slot %d\n", i);
+      return 1;
+    }
+    g_object_set(G_OBJECT(vsink),
+                 "widget", item,
+                 "sync", FALSE,
+                 "async", FALSE,
+                 "qos", TRUE,
+                 NULL);
+
+    ctx.videoconverts.push_back(vconv);
+    ctx.gluploads.push_back(glup);
+    ctx.glcolorconverts.push_back(glcc);
+    ctx.sinks.push_back(vsink);
+    ctx.in_use.push_back(false);
+  }
+  g_print("Prepared %zu video slots\n", ctx.sinks.size());
+  if (ctx.sinks.empty()) {
+    g_printerr("No QML video slots found (expected videoItem0..N)\n");
+    return 1;
+  }
 
   GST_DEBUG_BIN_TO_DOT_FILE(GST_BIN(pipeline),
                             GST_DEBUG_GRAPH_SHOW_ALL,
@@ -351,6 +438,12 @@ int main(int argc, char* argv[]) {
 
   gst_element_set_state(pipeline, GST_STATE_NULL);
   gst_object_unref(pipeline);
+  // Stop GLib loop and join thread
+  if (glibLoop) {
+    g_main_loop_quit(glibLoop);
+    if (glibThread.joinable()) glibThread.join();
+    g_main_loop_unref(glibLoop);
+  }
   gst_deinit();
   return ret;
 }

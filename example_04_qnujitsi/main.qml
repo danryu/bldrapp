@@ -2,6 +2,7 @@ import QtQuick 6.0
 import QtQuick.Controls 6.0
 import QtQuick.Dialogs 6.0
 import QtQuick.Window 6.0
+import QtQuick.Layouts 6.0
 
 import org.freedesktop.gstreamer.Qt6GLVideoItem 1.0
 
@@ -14,15 +15,18 @@ ApplicationWindow {
     y: 30
     color: "black"
 
-    Item {
+    GridLayout {
+        id: grid
         anchors.fill: parent
+        columns: 2
+        rowSpacing: 8
+        columnSpacing: 8
+        anchors.margins: 8
 
-        GstGLQt6VideoItem {
-            id: video
-            objectName: "videoItem"
-            anchors.centerIn: parent
-            width: parent.width
-            height: parent.height
-        }
+        // Pre-create a few slots; C++ will bind sinks to these in order.
+        GstGLQt6VideoItem { objectName: "videoItem0"; Layout.fillWidth: true; Layout.fillHeight: true }
+        GstGLQt6VideoItem { objectName: "videoItem1"; Layout.fillWidth: true; Layout.fillHeight: true }
+        GstGLQt6VideoItem { objectName: "videoItem2"; Layout.fillWidth: true; Layout.fillHeight: true }
+        GstGLQt6VideoItem { objectName: "videoItem3"; Layout.fillWidth: true; Layout.fillHeight: true }
     }
 }
