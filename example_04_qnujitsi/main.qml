@@ -15,39 +15,9 @@ ApplicationWindow {
     y: 30
     color: "black"
 
-    RowLayout {
-        id: controls
-        spacing: 8
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: parent.top
-        anchors.margins: 8
-
-        TextField {
-            id: hostField
-            Layout.fillWidth: true
-            placeholderText: "Enter Jitsi host (e.g. meet.jit.si)"
-            text: ""
-        }
-        Button {
-            text: "Connect"
-            onClicked: {
-                controller.setRoot(window);
-                controller.connectTo(hostField.text);
-            }
-        }
-        Button {
-            text: "Disconnect"
-            onClicked: controller.disconnect()
-        }
-    }
-
     GridLayout {
         id: grid
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        anchors.top: controls.bottom
+        anchors.fill: parent
         columns: 2
         rowSpacing: 8
         columnSpacing: 8
