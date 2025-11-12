@@ -5,6 +5,7 @@ import QtQuick.Window 6.0
 import QtQuick.Layouts 6.0
 
 import org.freedesktop.gstreamer.Qt6GLVideoItem 1.0
+import Qnujitsi 1.0
 
 ApplicationWindow {
     id: window
@@ -14,6 +15,30 @@ ApplicationWindow {
     x: 30
     y: 30
     color: "black"
+
+    header: ToolBar {
+        RowLayout {
+            anchors.fill: parent
+            spacing: 8
+            Label { text: "Host:"; color: "white" }
+            TextField { id: hostField; placeholderText: "meet.jit.si"; text: ""; selectByMouse: true; Layout.preferredWidth: 180 }
+            Label { text: "Room:"; color: "white" }
+            TextField { id: roomField; placeholderText: "myroom"; text: ""; selectByMouse: true; Layout.preferredWidth: 140 }
+            Label { text: "WxH:"; color: "white" }
+            TextField { id: widthField; placeholderText: "1280"; text: "1280"; inputMethodHints: Qt.ImhDigitsOnly; Layout.preferredWidth: 70 }
+            TextField { id: heightField; placeholderText: "720"; text: "720"; inputMethodHints: Qt.ImhDigitsOnly; Layout.preferredWidth: 60 }
+            Button {
+                id: connectButton
+                text: AppController.connected ? "Connected" : "Connect"
+                enabled: !AppController.connected
+                onClicked: {
+                    const w = parseInt(widthField.text) || 1280
+                    const h = parseInt(heightField.text) || 720
+                    AppController.connectToConference(window, hostField.text, roomField.text, w, h, 4, 720)
+                }
+            }
+        }
+    }
 
     GridLayout {
         id: grid

@@ -143,11 +143,12 @@ void ParticipantManager::handlePadAdded(GstPad* pad) {
   }
   // Force parser to not passthrough and normalize to avc/au
   g_object_set(G_OBJECT(parse),
-               "disable-passthrough", TRUE,
+              //  "disable-passthrough", TRUE,
+              "config-interval", 1,
                NULL);
-  if (g_object_class_find_property(G_OBJECT_GET_CLASS(dec), "realtime")) {
-    g_object_set(G_OBJECT(dec), "realtime", TRUE, NULL);
-  }
+  // if (g_object_class_find_property(G_OBJECT_GET_CLASS(dec), "realtime")) {
+  //   g_object_set(G_OBJECT(dec), "realtime", TRUE, NULL);
+  // }
   g_object_set(G_OBJECT(q_down),
                "leaky", 2 /* downstream */,
                "max-size-buffers", 0,

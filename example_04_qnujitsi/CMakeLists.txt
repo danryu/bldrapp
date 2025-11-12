@@ -57,7 +57,7 @@ message(STATUS "  $ENV{PKG_CONFIG_PATH}")
 pkg_check_modules(GSTREAMER REQUIRED IMPORTED_TARGET gstreamer-full-1.0)
 
 # Source files
-set(SOURCES main.cpp participant_manager.cpp send_pipeline.cpp conference.cpp)
+set(SOURCES main.cpp participant_manager.cpp send_pipeline.cpp conference.cpp app_controller.cpp)
 # When statically linking libraries with embedded Qt resources, always use unique QRC filenames to avoid qInitResources_* function name collisions
 # ie specifically don't use filename "resources.qrc", ever. Use a unique filename like "qnujitsi.qrc"
 # Otherwise you'll get runtime errors like Failed to find shader ":/org/freedesktop/gstreamer/qml6/vertex.vert.qsb
