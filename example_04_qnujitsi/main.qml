@@ -21,9 +21,9 @@ ApplicationWindow {
             anchors.fill: parent
             spacing: 8
             Label { text: "Host:"; color: "white" }
-            TextField { id: hostField; placeholderText: "meet.jit.si"; text: ""; selectByMouse: true; Layout.preferredWidth: 180 }
+            TextField { id: hostField; placeholderText: "meet.jit.si"; text: "t6s78uzq.ki.kormix.io"; selectByMouse: true; Layout.preferredWidth: 180 }
             Label { text: "Room:"; color: "white" }
-            TextField { id: roomField; placeholderText: "myroom"; text: ""; selectByMouse: true; Layout.preferredWidth: 140 }
+            TextField { id: roomField; placeholderText: "myroom"; text: "video"; selectByMouse: true; Layout.preferredWidth: 140 }
             Label { text: "WxH:"; color: "white" }
             TextField { id: widthField; placeholderText: "1280"; text: "1280"; inputMethodHints: Qt.ImhDigitsOnly; Layout.preferredWidth: 70 }
             TextField { id: heightField; placeholderText: "720"; text: "720"; inputMethodHints: Qt.ImhDigitsOnly; Layout.preferredWidth: 60 }
