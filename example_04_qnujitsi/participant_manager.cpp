@@ -94,13 +94,15 @@ void ParticipantManager::handlePadAdded(GstPad* pad) {
     return;
   }
 
-  // Explicit H.264 receive chain: h264parse -> vtdec/avdec_h264 -> queue(post-decoder) -> slot videoconvert
+  // Explicit H.264 receive chain: h264parse -> (q_pre ~200ms) -> vtdec/avdec_h264 -> queue(post-decoder) -> slot videoconvert
   GstElement* parse = gst_element_factory_make("h264parse", nullptr);
   GstElement* dec = gst_element_factory_make("vtdec", nullptr);
   if (!dec) dec = gst_element_factory_make("avdec_h264", nullptr);
+  // Pre-decoder queue to absorb ~200ms jitter before VideoToolbox
+  GstElement* q_pre = gst_element_factory_make("queue", nullptr);
   // Single post-decoder queue with modest bounds
   GstElement* q_down = gst_element_factory_make("queue", nullptr);
-  if (!parse || !dec || !q_down) {
+  if (!parse || !dec || !q_pre || !q_down) {
     g_printerr("Failed to create H264 receive chain elements\n");
     return;
   }
@@ -112,6 +114,14 @@ void ParticipantManager::handlePadAdded(GstPad* pad) {
   // if (g_object_class_find_property(G_OBJECT_GET_CLASS(dec), "realtime")) {
   //   g_object_set(G_OBJECT(dec), "realtime", TRUE, NULL);
   // }
+  // Configure pre-decoder buffering to smooth bursty RTP arrival
+  g_object_set(G_OBJECT(q_pre),
+               "leaky", 0,
+               "max-size-buffers", 0,
+               "max-size-bytes", 0,
+               "max-size-time", 1500000000, /* ~200 ms */
+               NULL);
+  // Optional small post-decode queue (defaults used)
   // g_object_set(G_OBJECT(q_down),
   //              "leaky", 0 /* non-leaky */,
   //              "max-size-buffers", 0,
@@ -120,8 +130,9 @@ void ParticipantManager::handlePadAdded(GstPad* pad) {
   //              "flush-on-eos", TRUE,
   //              NULL);
 
-  gst_bin_add_many(GST_BIN(pipeline_), parse, dec, q_down, NULL);
+  gst_bin_add_many(GST_BIN(pipeline_), parse, q_pre, dec, q_down, NULL);
   gst_element_sync_state_with_parent(parse);
+  gst_element_sync_state_with_parent(q_pre);
   gst_element_sync_state_with_parent(dec);
   gst_element_sync_state_with_parent(q_down);
 
@@ -136,18 +147,22 @@ void ParticipantManager::handlePadAdded(GstPad* pad) {
       return;
     }
   }
-  // Link parse -> dec with caps enforcing avc/au for decoder compatibility
+  // Link parse -> q_pre with caps enforcing avc/au for decoder compatibility, then q_pre -> dec
   {
     GstCaps* dec_caps = gst_caps_new_simple("video/x-h264",
                                             "stream-format", G_TYPE_STRING, "avc",
                                             "alignment", G_TYPE_STRING, "au",
                                             NULL);
-    if (!gst_element_link_filtered(parse, dec, dec_caps)) {
-      g_printerr("Failed to link h264parse -> decoder with filtered caps (avc/au)\n");
+    if (!gst_element_link_filtered(parse, q_pre, dec_caps)) {
+      g_printerr("Failed to link h264parse -> pre-decode queue with filtered caps (avc/au)\n");
       gst_caps_unref(dec_caps);
       return;
     }
     gst_caps_unref(dec_caps);
+    if (!gst_element_link(q_pre, dec)) {
+      g_printerr("Failed to link pre-decode queue -> decoder\n");
+      return;
+    }
   }
   // Link dec -> q_down
   if (!gst_element_link(dec, q_down)) {
