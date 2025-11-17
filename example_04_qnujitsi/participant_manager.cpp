@@ -8,6 +8,8 @@
 #include <gst/video/gstvideodecoder.h>
 #include <gst/gstdebugutils.h>
 
+#include <mutex>
+
 ParticipantManager::ParticipantManager(GstElement* pipeline, GstElement* jitsibin)
   : pipeline_(pipeline), jitsibin_(jitsibin) {}
 
@@ -78,7 +80,7 @@ void ParticipantManager::onFinished(GstElement* /*jitsibin*/, gboolean success, 
   self->handleFinished(success);
 }
 
-int ParticipantManager::acquireFreeSlot() const {
+int ParticipantManager::acquireFreeSlotLocked() {
   for (size_t i = 0; i < inUse_.size(); ++i) {
     if (!inUse_[i]) return static_cast<int>(i);
   }
@@ -100,8 +102,22 @@ void ParticipantManager::handlePadAdded(GstPad* pad) {
 
   g_print("Incoming pad %s: assuming raw H.264\n", GST_PAD_NAME(pad));
 
-  // Choose a free video slot
-  int slot_index = acquireFreeSlot();
+  // Choose and reserve a free video slot under lock to avoid races between
+  // concurrent pad-added callbacks that might otherwise pick the same slot.
+  int slot_index = -1;
+  GstElement* slot_videoconvert = nullptr;
+  {
+    std::lock_guard<std::mutex> lock(slotMutex_);
+    for (size_t i = 0; i < inUse_.size(); ++i) {
+      if (!inUse_[i]) {
+        inUse_[i] = true;  // reserve immediately
+        slot_index = static_cast<int>(i);
+        slot_videoconvert = videoconverts_[i];
+        break;
+      }
+    }
+  }
+
   if (slot_index < 0) {
     g_printerr("No available video slots; ignoring new incoming pad %s\n", GST_PAD_NAME(pad));
     return;
@@ -140,10 +156,18 @@ void ParticipantManager::handlePadAdded(GstPad* pad) {
   // Link h264parse -> decoder -> videoconvert (simplified, no queues or caps filter)
   if (!gst_element_link(parse, dec)) {
     g_printerr("Failed to link h264parse -> decoder\n");
+    {
+      std::lock_guard<std::mutex> lock(slotMutex_);
+      inUse_[slot_index] = false;
+    }
     return;
   }
-  if (!gst_element_link(dec, videoconverts_[slot_index])) {
+  if (!gst_element_link(dec, slot_videoconvert)) {
     g_printerr("Failed to link decoder -> videoconvert (slot %d)\n", slot_index);
+    {
+      std::lock_guard<std::mutex> lock(slotMutex_);
+      inUse_[slot_index] = false;
+    }
     return;
   }
 

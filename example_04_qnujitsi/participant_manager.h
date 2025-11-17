@@ -4,6 +4,7 @@
 #include <gst/gst.h>
 
 #include <vector>
+#include <mutex>
 
 class QQuickWindow;
 class QQuickItem;
@@ -29,7 +30,7 @@ private:
   void handleFinished(gboolean success);
 
   // Helpers
-  int acquireFreeSlot() const;
+  int acquireFreeSlotLocked();
 
 private:
   GstElement* pipeline_;
@@ -42,6 +43,9 @@ private:
   std::vector<GstElement*> glcolorconverts_;
   std::vector<GstElement*> sinks_;
   std::vector<bool> inUse_;
+
+  // Guards access to slot vectors and inUse_ during pad-added handling
+  std::mutex slotMutex_;
 };
 
 
