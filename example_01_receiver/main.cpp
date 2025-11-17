@@ -39,7 +39,7 @@ auto jitsibin_pad_added_handler(GstElement* const /*jitsibin*/, GstPad* const pa
     if(pad_name.codec == "OPUS") {
         decoder = "TODO";
     } else if(pad_name.codec == "H264") {
-        decoder = "openh264dec";
+        decoder = "vtdec";
     } else if(pad_name.codec == "VP8") {
         decoder = "avdec_vp8";
     } else if(pad_name.codec == "VP9") {
@@ -205,7 +205,7 @@ static int app_main(int argc, char** argv, gpointer /*user_data*/) {
 
     unwrap_mut(videotestsrc, add_new_element_to_pipeine(pipeline.get(), "videotestsrc"));
     unwrap_mut(videoconvert, add_new_element_to_pipeine(pipeline.get(), "videoconvert"));
-    unwrap_mut(openh264enc, add_new_element_to_pipeine(pipeline.get(), "openh264enc"));
+    unwrap_mut(vtenc_h264, add_new_element_to_pipeine(pipeline.get(), "vtenc_h264"));
     unwrap_mut(h264parse, add_new_element_to_pipeine(pipeline.get(), "h264parse"));
     unwrap_mut(audiotestsrc, add_new_element_to_pipeine(pipeline.get(), "audiotestsrc"));
     unwrap_mut(opusenc, add_new_element_to_pipeine(pipeline.get(), "opusenc"));
@@ -224,7 +224,7 @@ static int app_main(int argc, char** argv, gpointer /*user_data*/) {
                  "is-live", TRUE,
                  "wave", 8,
                  NULL);
-    g_object_set(&openh264enc,
+    g_object_set(&vtenc_h264,
                  "gop-size", 30,
                  NULL);
     g_object_set(&jitsibin,
@@ -238,8 +238,8 @@ static int app_main(int argc, char** argv, gpointer /*user_data*/) {
                  NULL);
 
     ensure(gst_element_link_pads(&videotestsrc, NULL, &videoconvert, NULL) == TRUE);
-    ensure(gst_element_link_pads(&videoconvert, NULL, &openh264enc, NULL) == TRUE);
-    ensure(gst_element_link_pads(&openh264enc, NULL, &h264parse, NULL) == TRUE);
+    ensure(gst_element_link_pads(&videoconvert, NULL, &vtenc_h264, NULL) == TRUE);
+    ensure(gst_element_link_pads(&vtenc_h264, NULL, &h264parse, NULL) == TRUE);
     ensure(gst_element_link_pads(&h264parse, NULL, &jitsibin, "video_sink") == TRUE);
     ensure(gst_element_link_pads(&audiotestsrc, NULL, &opusenc, NULL) == TRUE);
     ensure(gst_element_link_pads(&opusenc, NULL, &jitsibin, "audio_sink") == TRUE);
