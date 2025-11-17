@@ -35,8 +35,9 @@ private:
   GstElement* pipeline_;
   GstElement* jitsibin_;
 
-  // Per-slot receive tail: videoconvert -> glupload -> glcolorconvert -> qml6glsink
+  // Per-slot receive tail: videoconvert -> queue -> glupload -> glcolorconvert -> qml6glsink
   std::vector<GstElement*> videoconverts_;
+  std::vector<GstElement*> queues_;
   std::vector<GstElement*> gluploads_;
   std::vector<GstElement*> glcolorconverts_;
   std::vector<GstElement*> sinks_;

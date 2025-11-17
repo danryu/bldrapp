@@ -5,6 +5,7 @@
 #include <QQuickItem>
 
 #include <gst/gst.h>
+#include <gst/video/gstvideodecoder.h>
 #include <gst/gstdebugutils.h>
 
 ParticipantManager::ParticipantManager(GstElement* pipeline, GstElement* jitsibin)
@@ -23,26 +24,39 @@ bool ParticipantManager::initializeSlots(QQuickWindow* rootWindow) {
     if (!item) break;
 
     GstElement* vconv = gst_element_factory_make("videoconvert", nullptr);
+    GstElement* queue = gst_element_factory_make("queue", nullptr);
     GstElement* glup = gst_element_factory_make("glupload", nullptr);
     GstElement* glcc = gst_element_factory_make("glcolorconvert", nullptr);
     GstElement* vsink = gst_element_factory_make("qml6glsink", nullptr);
-    if (!vconv || !glup || !glcc || !vsink) {
+    if (!vconv || !queue || !glup || !glcc || !vsink) {
       g_printerr("Failed to create receive elements for slot %d\n", i);
       return false;
     }
-    gst_bin_add_many(GST_BIN(pipeline_), vconv, glup, glcc, vsink, NULL);
-    if (!gst_element_link_many(vconv, glup, glcc, vsink, NULL)) {
-      g_printerr("Failed to link videoconvert -> glupload -> glcolorconvert -> qml6glsink for slot %d\n", i);
+    
+    // Configure queue for smooth frame delivery to GL pipeline
+    // Use leaky downstream to drop old frames when queue fills, preventing artifacts
+    g_object_set(G_OBJECT(queue),
+                 "max-size-buffers", 5,           // Limit buffer count
+                 "max-size-bytes", 0,             // Unlimited bytes
+                 "max-size-time", 0,              // Unlimited time
+                 "leaky", 2,                      // GST_QUEUE_LEAK_DOWNSTREAM - drop old frames
+                 NULL);
+    
+    gst_bin_add_many(GST_BIN(pipeline_), vconv, queue, glup, glcc, vsink, NULL);
+    if (!gst_element_link_many(vconv, queue, glup, glcc, vsink, NULL)) {
+      g_printerr("Failed to link videoconvert -> queue -> glupload -> glcolorconvert -> qml6glsink for slot %d\n", i);
       return false;
     }
+    
+    // Key fix: Enable sync for proper frame timing, disable async to match osxvideosink behavior
     g_object_set(G_OBJECT(vsink),
                  "widget", item,
-                 "sync", FALSE,
-                 "async", FALSE,
-                 "qos", TRUE,
+                 "sync", TRUE,   // Enable sync for proper frame timing (prevents artifacts)
+                 "async", FALSE, // Match osxvideosink behavior
                  NULL);
 
     videoconverts_.push_back(vconv);
+    queues_.push_back(queue);
     gluploads_.push_back(glup);
     glcolorconverts_.push_back(glcc);
     sinks_.push_back(vsink);
@@ -84,7 +98,6 @@ void ParticipantManager::handleFinished(gboolean success) {
 void ParticipantManager::handlePadAdded(GstPad* pad) {
   if (!pipeline_) return;
 
-  // Treat as raw H.264; jitsibin exposes depayloaded H.264
   g_print("Incoming pad %s: assuming raw H.264\n", GST_PAD_NAME(pad));
 
   // Choose a free video slot
@@ -94,47 +107,23 @@ void ParticipantManager::handlePadAdded(GstPad* pad) {
     return;
   }
 
-  // Explicit H.264 receive chain: h264parse -> (q_pre ~200ms) -> vtdec/avdec_h264 -> queue(post-decoder) -> slot videoconvert
+  // Simplified H.264 receive chain mirroring example_00a_qreceiver: h264parse -> vtdec -> videoconvert
   GstElement* parse = gst_element_factory_make("h264parse", nullptr);
   GstElement* dec = gst_element_factory_make("vtdec", nullptr);
   if (!dec) dec = gst_element_factory_make("avdec_h264", nullptr);
-  // Pre-decoder queue to absorb ~200ms jitter before VideoToolbox
-  GstElement* q_pre = gst_element_factory_make("queue", nullptr);
-  // Single post-decoder queue with modest bounds
-  GstElement* q_down = gst_element_factory_make("queue", nullptr);
-  if (!parse || !dec || !q_pre || !q_down) {
+  
+  if (!parse || !dec) {
     g_printerr("Failed to create H264 receive chain elements\n");
     return;
   }
-  // Force parser to not passthrough and normalize to avc/au
-  g_object_set(G_OBJECT(parse),
-              //  "disable-passthrough", TRUE,
-              "config-interval", 0,
-               NULL);
-  // if (g_object_class_find_property(G_OBJECT_GET_CLASS(dec), "realtime")) {
-  //   g_object_set(G_OBJECT(dec), "realtime", TRUE, NULL);
-  // }
-  // Configure pre-decoder buffering to smooth bursty RTP arrival
-  g_object_set(G_OBJECT(q_pre),
-               "leaky", 0,
-               "max-size-buffers", 0,
-               "max-size-bytes", 0,
-               "max-size-time", 1500000000, /* ~200 ms */
-               NULL);
-  // Optional small post-decode queue (defaults used)
-  // g_object_set(G_OBJECT(q_down),
-  //              "leaky", 0 /* non-leaky */,
-  //              "max-size-buffers", 0,
-  //              "max-size-bytes", 0,
-  //              "max-size-time", 200000000 /* 200ms */,
-  //              "flush-on-eos", TRUE,
-  //              NULL);
 
-  gst_bin_add_many(GST_BIN(pipeline_), parse, q_pre, dec, q_down, NULL);
-  gst_element_sync_state_with_parent(parse);
-  gst_element_sync_state_with_parent(q_pre);
-  gst_element_sync_state_with_parent(dec);
-  gst_element_sync_state_with_parent(q_down);
+  // Use GST_VIDEO_DECODER_REQUEST_SYNC_POINT_CORRUPT_OUTPUT flag as in example_00a_qreceiver
+  g_object_set(G_OBJECT(dec),
+               "automatic-request-sync-points", TRUE,
+               "automatic-request-sync-point-flags", GST_VIDEO_DECODER_REQUEST_SYNC_POINT_CORRUPT_OUTPUT,
+               NULL);
+
+  gst_bin_add_many(GST_BIN(pipeline_), parse, dec, NULL);
 
   // Link jitsibin pad -> h264parse
   {
@@ -147,34 +136,28 @@ void ParticipantManager::handlePadAdded(GstPad* pad) {
       return;
     }
   }
-  // Link parse -> q_pre with caps enforcing avc/au for decoder compatibility, then q_pre -> dec
-  {
-    GstCaps* dec_caps = gst_caps_new_simple("video/x-h264",
-                                            "stream-format", G_TYPE_STRING, "avc",
-                                            "alignment", G_TYPE_STRING, "au",
-                                            NULL);
-    if (!gst_element_link_filtered(parse, q_pre, dec_caps)) {
-      g_printerr("Failed to link h264parse -> pre-decode queue with filtered caps (avc/au)\n");
-      gst_caps_unref(dec_caps);
-      return;
-    }
-    gst_caps_unref(dec_caps);
-    if (!gst_element_link(q_pre, dec)) {
-      g_printerr("Failed to link pre-decode queue -> decoder\n");
-      return;
-    }
-  }
-  // Link dec -> q_down
-  if (!gst_element_link(dec, q_down)) {
-    g_printerr("Failed to link decoder -> downstream queue\n");
+
+  // Link h264parse -> decoder -> videoconvert (simplified, no queues or caps filter)
+  if (!gst_element_link(parse, dec)) {
+    g_printerr("Failed to link h264parse -> decoder\n");
     return;
   }
-  // Link q_down -> slot videoconvert
-  if (!gst_element_link(q_down, videoconverts_[slot_index])) {
-    g_printerr("Failed to link downstream queue -> videoconvert (slot %d)\n", slot_index);
+  if (!gst_element_link(dec, videoconverts_[slot_index])) {
+    g_printerr("Failed to link decoder -> videoconvert (slot %d)\n", slot_index);
     return;
   }
-  g_print("H264 receive chain linked OK (slot %d) via raw h264\n", slot_index);
+
+  // Sync state in reverse order as in example_00a_qreceiver
+  gst_element_sync_state_with_parent(videoconverts_[slot_index]);
+  gst_element_sync_state_with_parent(queues_[slot_index]);
+  gst_element_sync_state_with_parent(gluploads_[slot_index]);
+  gst_element_sync_state_with_parent(glcolorconverts_[slot_index]);
+  gst_element_sync_state_with_parent(sinks_[slot_index]);
+  gst_element_sync_state_with_parent(dec);
+  gst_element_sync_state_with_parent(parse);
+
+
+  g_print("H264 receive chain linked OK (slot %d) - simplified pipeline\n", slot_index);
 
   inUse_[slot_index] = true;
 

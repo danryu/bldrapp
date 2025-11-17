@@ -13,6 +13,7 @@ openh264-src/
 vpx-install/
 libvpx-src/
 qjsink/build/
+example_00_upstreamreceiver/build/
 example_01_receiver/build/
 example_02_qmlsink/build/
 example_03_qjsink/build/
