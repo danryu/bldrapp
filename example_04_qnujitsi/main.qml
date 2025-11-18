@@ -21,7 +21,7 @@ ApplicationWindow {
             anchors.fill: parent
             spacing: 8
             Label { text: "Host:"; color: "white" }
-            TextField { id: hostField; placeholderText: "meet.jit.si"; text: "t6s78uzq.ki.kormix.io"; selectByMouse: true; Layout.preferredWidth: 180 }
+            TextField { id: hostField; placeholderText: "meet.jit.si"; text: "2ckd8mbh.ki.kormix.io"; selectByMouse: true; Layout.preferredWidth: 180 }
             Label { text: "Room:"; color: "white" }
             TextField { id: roomField; placeholderText: "myroom"; text: "video"; selectByMouse: true; Layout.preferredWidth: 140 }
             Label { text: "WxH:"; color: "white" }
