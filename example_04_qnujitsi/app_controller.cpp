@@ -7,9 +7,14 @@
 #include <gst/gst.h>
 
 #include "conference.h"
+#include "camera_manager.h"
 
 AppController::AppController(QObject* parent)
   : QObject(parent) {
+  // Initialize camera manager and enumerate cameras
+  cameraManager_ = std::make_unique<CameraManager>(this);
+  cameraManager_->enumerateCameras();
+
   // Ensure graceful teardown on app exit
   if (QCoreApplication::instance()) {
     connect(QCoreApplication::instance(), &QCoreApplication::aboutToQuit, this, [this] {
@@ -54,7 +59,18 @@ bool AppController::connectToConference(QQuickWindow* rootWindow,
     return false;
   }
 
-  if (!conference_->initQmlSlotsAndSend(rootWindow, videoWidth, videoHeight)) {
+  // Get selected camera device
+  const char* cameraDeviceIndex = nullptr;
+  if (cameraManager_) {
+    const CameraDevice* selectedCamera = cameraManager_->selectedCamera();
+    if (selectedCamera) {
+      cameraDeviceIndex = selectedCamera->deviceName.c_str();
+      qDebug() << "Using camera:" << QString::fromStdString(selectedCamera->displayName)
+               << "with device index:" << cameraDeviceIndex;
+    }
+  }
+
+  if (!conference_->initQmlSlotsAndSend(rootWindow, videoWidth, videoHeight, cameraDeviceIndex)) {
     conference_.reset();
     emit error(QStringLiteral("Failed to initialize QML slots and send pipeline"));
     return false;

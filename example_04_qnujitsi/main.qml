@@ -10,7 +10,7 @@ import Qnujitsi 1.0
 ApplicationWindow {
     id: window
     visible: true
-    width: 640
+    width: 1140
     height: 480
     x: 30
     y: 30
@@ -20,8 +20,21 @@ ApplicationWindow {
         RowLayout {
             anchors.fill: parent
             spacing: 8
+            Label { text: "Camera:"; color: "white" }
+            ComboBox {
+                id: cameraCombo
+                model: AppController.cameraManager.cameraNames
+                currentIndex: AppController.cameraManager.currentCameraIndex
+                enabled: !AppController.connected
+                onCurrentIndexChanged: {
+                    if (currentIndex !== AppController.cameraManager.currentCameraIndex) {
+                        AppController.cameraManager.currentCameraIndex = currentIndex
+                    }
+                }
+                Layout.preferredWidth: 160
+            }
             Label { text: "Host:"; color: "white" }
-            TextField { id: hostField; placeholderText: "meet.jit.si"; text: "2ckd8mbh.ki.kormix.io"; selectByMouse: true; Layout.preferredWidth: 180 }
+            TextField { id: hostField; placeholderText: "meet.jit.si"; text: "98sipala.ki.kormix.io"; selectByMouse: true; Layout.preferredWidth: 180 }
             Label { text: "Room:"; color: "white" }
             TextField { id: roomField; placeholderText: "myroom"; text: "video"; selectByMouse: true; Layout.preferredWidth: 140 }
             Label { text: "WxH:"; color: "white" }
@@ -29,12 +42,20 @@ ApplicationWindow {
             TextField { id: heightField; placeholderText: "720"; text: "720"; inputMethodHints: Qt.ImhDigitsOnly; Layout.preferredWidth: 60 }
             Button {
                 id: connectButton
-                text: AppController.connected ? "Connected" : "Connect"
+                text: "Connect"
                 enabled: !AppController.connected
                 onClicked: {
                     const w = parseInt(widthField.text) || 1280
                     const h = parseInt(heightField.text) || 720
                     AppController.connectToConference(window, hostField.text, roomField.text, w, h, 4, 720)
+                }
+            }
+            Button {
+                id: disconnectButton
+                text: "Disconnect"
+                enabled: AppController.connected
+                onClicked: {
+                    AppController.disconnectConference()
                 }
             }
         }

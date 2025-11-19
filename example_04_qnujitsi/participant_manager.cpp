@@ -50,12 +50,24 @@ bool ParticipantManager::initializeSlots(QQuickWindow* rootWindow) {
       return false;
     }
     
-    // Key fix: Enable sync for proper frame timing, disable async to match osxvideosink behavior
-    g_object_set(G_OBJECT(vsink),
-                 "widget", item,
-                 "sync", TRUE,   // Enable sync for proper frame timing (prevents artifacts)
-                 "async", FALSE, // Match osxvideosink behavior
-                 NULL);
+    // Configure sink differently for slot 0 (local preview) vs remote slots
+    if (i == 0) {
+      // Slot 0 (local preview): disable sync for immediate frame display from live camera
+      g_object_set(G_OBJECT(vsink),
+                   "widget", item,
+                   "sync", FALSE,  // No sync for local preview - display frames immediately
+                   "async", FALSE, // Match osxvideosink behavior
+                   "max-lateness", -1, // Never drop frames due to lateness
+                   "qos", FALSE,   // Disable QoS to prevent frame drops
+                   NULL);
+    } else {
+      // Slots 1-3 (remote participants): enable sync for proper playback timing
+      g_object_set(G_OBJECT(vsink),
+                   "widget", item,
+                   "sync", TRUE,   // Enable sync for proper frame timing (prevents artifacts)
+                   "async", FALSE, // Match osxvideosink behavior
+                   NULL);
+    }
 
     videoconverts_.push_back(vconv);
     queues_.push_back(queue);

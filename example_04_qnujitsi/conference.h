@@ -23,7 +23,9 @@ public:
 
   // Initialize per-slot QML sinks via ParticipantManager, then build send pipeline.
   // This order allows send pipeline to use slot 0 for local preview.
-  bool initQmlSlotsAndSend(QQuickWindow* rootWindow, int videoWidth, int videoHeight);
+  // cameraDeviceIndex: camera device index (e.g., "0", "1"), nullptr for test source
+  bool initQmlSlotsAndSend(QQuickWindow* rootWindow, int videoWidth, int videoHeight,
+                           const char* cameraDeviceIndex = nullptr);
 
   // Dump a GST dot graph
   void dumpDot(const char* name) const;
