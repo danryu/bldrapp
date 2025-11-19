@@ -13,8 +13,7 @@ public:
   Conference();
   ~Conference();
 
-  // Build base pipeline and jitsibin, configure properties,
-  // build send pipeline, and connect participant signals.
+  // Build base pipeline and jitsibin, configure properties.
   bool build(const char* host,
              const char* room,
              int videoWidth,
@@ -22,8 +21,9 @@ public:
              int receiveLimit,
              int receiveMaxHeight);
 
-  // Initialize per-slot QML sinks via ParticipantManager
-  bool initQmlSlots(QQuickWindow* rootWindow);
+  // Initialize per-slot QML sinks via ParticipantManager, then build send pipeline.
+  // This order allows send pipeline to use slot 0 for local preview.
+  bool initQmlSlotsAndSend(QQuickWindow* rootWindow, int videoWidth, int videoHeight);
 
   // Dump a GST dot graph
   void dumpDot(const char* name) const;

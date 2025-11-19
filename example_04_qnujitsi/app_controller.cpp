@@ -54,9 +54,9 @@ bool AppController::connectToConference(QQuickWindow* rootWindow,
     return false;
   }
 
-  if (!conference_->initQmlSlots(rootWindow)) {
+  if (!conference_->initQmlSlotsAndSend(rootWindow, videoWidth, videoHeight)) {
     conference_.reset();
-    emit error(QStringLiteral("Failed to initialize QML slots"));
+    emit error(QStringLiteral("Failed to initialize QML slots and send pipeline"));
     return false;
   }
 

@@ -20,6 +20,13 @@ public:
   // Returns false if no slots found or setup fails
   bool initializeSlots(QQuickWindow* rootWindow);
 
+  // Get the videoconvert element for a specific slot (for local preview)
+  // Returns nullptr if slot index is out of range
+  GstElement* getSlotVideoconvert(int slotIndex);
+
+  // Reserve a slot for local preview (mark as in-use)
+  void reserveSlot(int slotIndex);
+
 private:
   // Static thunks for GObject signals
   static void onPadAdded(GstElement* /*jitsibin*/, GstPad* pad, gpointer user_data);

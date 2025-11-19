@@ -51,17 +51,12 @@ bool Conference::build(const char* host,
                "video-codec", 1, /* H264 enum value */
                "receive-limit", receiveLimit,
                "receive-max-height", receiveMaxHeight,
+               "jitterbuffer-latency", 300, /* 300ms jitter buffer */
                "force-play", TRUE,
                "insecure", TRUE,
                NULL);
 
   gst_bin_add_many(GST_BIN(pipeline_), jitsibin_, NULL);
-
-  send_ = new SendPipeline(pipeline_, jitsibin_);
-  if (!send_->buildAndLink(videoWidth, videoHeight)) {
-    g_printerr("Failed to build send pipeline\n");
-    return false;
-  }
 
   participants_ = new ParticipantManager(pipeline_, jitsibin_);
   participants_->connectSignals();
@@ -69,9 +64,33 @@ bool Conference::build(const char* host,
   return true;
 }
 
-bool Conference::initQmlSlots(QQuickWindow* rootWindow) {
+bool Conference::initQmlSlotsAndSend(QQuickWindow* rootWindow, int videoWidth, int videoHeight) {
   if (!participants_) return false;
-  return participants_->initializeSlots(rootWindow);
+
+  // Initialize QML slots first
+  if (!participants_->initializeSlots(rootWindow)) {
+    return false;
+  }
+
+  // Get slot 0's videoconvert for local preview and reserve it
+  GstElement* localSlotVideoconvert = participants_->getSlotVideoconvert(0);
+  if (!localSlotVideoconvert) {
+    g_printerr("Failed to get slot 0 videoconvert for local preview\n");
+    return false;
+  }
+
+  // Reserve slot 0 for local preview
+  participants_->reserveSlot(0);
+
+  // Build send pipeline with local preview to slot 0
+  send_ = new SendPipeline(pipeline_, jitsibin_);
+  if (!send_->buildAndLink(videoWidth, videoHeight, localSlotVideoconvert)) {
+    g_printerr("Failed to build send pipeline with local preview\n");
+    return false;
+  }
+
+  g_print("Local preview configured to slot 0\n");
+  return true;
 }
 
 void Conference::dumpDot(const char* name) const {

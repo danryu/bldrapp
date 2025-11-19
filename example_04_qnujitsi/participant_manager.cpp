@@ -68,6 +68,21 @@ bool ParticipantManager::initializeSlots(QQuickWindow* rootWindow) {
   return !sinks_.empty();
 }
 
+GstElement* ParticipantManager::getSlotVideoconvert(int slotIndex) {
+  if (slotIndex < 0 || slotIndex >= static_cast<int>(videoconverts_.size())) {
+    return nullptr;
+  }
+  return videoconverts_[slotIndex];
+}
+
+void ParticipantManager::reserveSlot(int slotIndex) {
+  if (slotIndex < 0 || slotIndex >= static_cast<int>(inUse_.size())) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(slotMutex_);
+  inUse_[slotIndex] = true;
+}
+
 void ParticipantManager::onPadAdded(GstElement* /*jitsibin*/, GstPad* pad, gpointer user_data) {
   auto* self = static_cast<ParticipantManager*>(user_data);
   if (!self) return;
