@@ -3,18 +3,23 @@
 #include <QQmlApplicationEngine>
 #include <QQuickWindow>
 #include <QQuickItem>
+#include <QMetaObject>
 
 #include <gst/gst.h>
 #include <gst/video/gstvideodecoder.h>
 #include <gst/gstdebugutils.h>
 
 #include <mutex>
+#include <algorithm>
 
 ParticipantManager::ParticipantManager(GstElement* pipeline, GstElement* jitsibin)
   : pipeline_(pipeline), jitsibin_(jitsibin) {}
 
 void ParticipantManager::connectSignals() {
   g_signal_connect(jitsibin_, "pad-added", GCallback(&ParticipantManager::onPadAdded), this);
+  g_signal_connect(jitsibin_, "participant-joined", GCallback(&ParticipantManager::onParticipantJoined), this);
+  g_signal_connect(jitsibin_, "participant-left", GCallback(&ParticipantManager::onParticipantLeft), this);
+  g_signal_connect(jitsibin_, "mute-state-changed", GCallback(&ParticipantManager::onMuteStateChanged), this);
   g_signal_connect(jitsibin_, "finished", GCallback(&ParticipantManager::onFinished), this);
 }
 
@@ -74,7 +79,11 @@ bool ParticipantManager::initializeSlots(QQuickWindow* rootWindow) {
     gluploads_.push_back(glup);
     glcolorconverts_.push_back(glcc);
     sinks_.push_back(vsink);
+    videoItems_.push_back(item);
     inUse_.push_back(false);
+
+    // Initial state: only local preview (slot 0) is visible
+    item->setVisible(i == 0);
   }
   g_print("Prepared %zu video slots\n", sinks_.size());
   return !sinks_.empty();
@@ -101,6 +110,24 @@ void ParticipantManager::onPadAdded(GstElement* /*jitsibin*/, GstPad* pad, gpoin
   self->handlePadAdded(pad);
 }
 
+void ParticipantManager::onParticipantJoined(GstElement* /*jitsibin*/, const gchar* participant_id, const gchar* nick, gpointer user_data) {
+  auto* self = static_cast<ParticipantManager*>(user_data);
+  if (!self) return;
+  self->handleParticipantJoined(participant_id, nick);
+}
+
+void ParticipantManager::onParticipantLeft(GstElement* /*jitsibin*/, const gchar* participant_id, const gchar* nick, gpointer user_data) {
+  auto* self = static_cast<ParticipantManager*>(user_data);
+  if (!self) return;
+  self->handleParticipantLeft(participant_id, nick);
+}
+
+void ParticipantManager::onMuteStateChanged(GstElement* /*jitsibin*/, const gchar* participant_id, gboolean is_audio, gboolean new_muted, gpointer user_data) {
+  auto* self = static_cast<ParticipantManager*>(user_data);
+  if (!self) return;
+  self->handleMuteStateChanged(participant_id, is_audio, new_muted);
+}
+
 void ParticipantManager::onFinished(GstElement* /*jitsibin*/, gboolean success, gpointer user_data) {
   auto* self = static_cast<ParticipantManager*>(user_data);
   if (!self) return;
@@ -124,10 +151,105 @@ void ParticipantManager::handleFinished(gboolean success) {
   }
 }
 
+std::string ParticipantManager::getParticipantIdFromPadName(const std::string& padName) {
+  // Format: participantId_codec_ssrc
+  // Search from right
+  auto i = padName.rfind('_');
+  if (i == std::string::npos) return "";
+  
+  auto j = padName.rfind('_', i - 1);
+  if (j == std::string::npos) return "";
+  
+  return padName.substr(0, j);
+}
+
+void ParticipantManager::teardownPad(GstPad* pad) {
+  std::lock_guard<std::mutex> lock(slotMutex_);
+  auto it = activeSessions_.find(pad);
+  if (it == activeSessions_.end()) {
+    // Could be already torn down
+    return;
+  }
+
+  const auto& session = it->second;
+  int slotIndex = session.slotIndex;
+  g_print("  Cleaning up slot %d (parser=%p, decoder=%p)\n", slotIndex, session.parser, session.decoder);
+
+  // 1. Unlink decoder -> videoconvert (the slot's permanent input)
+  GstElement* slotVideoconvert = videoconverts_[slotIndex];
+  if (session.decoder && slotVideoconvert) {
+      gst_element_unlink(session.decoder, slotVideoconvert);
+  }
+
+  // 2. Set elements to NULL and remove from pipeline
+  if (session.decoder) {
+    gst_element_set_state(session.decoder, GST_STATE_NULL);
+    gst_bin_remove(GST_BIN(pipeline_), session.decoder);
+  }
+  if (session.parser) {
+    gst_element_set_state(session.parser, GST_STATE_NULL);
+    gst_bin_remove(GST_BIN(pipeline_), session.parser);
+  }
+
+  // 3. Mark slot as free
+  inUse_[slotIndex] = false;
+  
+  // Hide the video item on the main thread
+  if (slotIndex < static_cast<int>(videoItems_.size())) {
+    QQuickItem* item = videoItems_[slotIndex];
+    if (item) {
+       QMetaObject::invokeMethod(item, [item](){ item->setVisible(false); }, Qt::QueuedConnection);
+    }
+  }
+
+  activeSessions_.erase(it);
+  g_print("  Slot %d freed.\n", slotIndex);
+}
+
+void ParticipantManager::handleParticipantJoined(const gchar* participant_id, const gchar* nick) {
+  g_print("ParticipantManager::handleParticipantJoined id=%s nick=%s\n", participant_id, nick);
+}
+
+void ParticipantManager::handleParticipantLeft(const gchar* participant_id, const gchar* nick) {
+  g_print("ParticipantManager::handleParticipantLeft id=%s nick=%s\n", participant_id, nick);
+  
+  std::string pid(participant_id);
+  std::vector<GstPad*> padsToTeardown;
+  
+  {
+    std::lock_guard<std::mutex> lock(slotMutex_);
+    auto it = participantPads_.find(pid);
+    if (it != participantPads_.end()) {
+      padsToTeardown = it->second;
+      // We will clear the entry now, as we are tearing them down
+      participantPads_.erase(it);
+    }
+  }
+  
+  if (padsToTeardown.empty()) {
+    g_print("  No tracked pads for participant %s\n", participant_id);
+    return;
+  }
+
+  for (GstPad* pad : padsToTeardown) {
+     g_print("  Tearing down pad for participant %s\n", participant_id);
+     // Drop lock before calling teardownPad because it acquires lock
+     teardownPad(pad);
+  }
+}
+
+void ParticipantManager::handleMuteStateChanged(const gchar* participant_id, gboolean is_audio, gboolean new_muted) {
+  g_print("ParticipantManager::handleMuteStateChanged id=%s %s=%d\n", participant_id, is_audio ? "audio" : "video", new_muted);
+}
+
 void ParticipantManager::handlePadAdded(GstPad* pad) {
   if (!pipeline_) return;
 
-  g_print("Incoming pad %s: assuming raw H.264\n", GST_PAD_NAME(pad));
+  gchar* padNameC = gst_object_get_name(GST_OBJECT(pad));
+  std::string padName = padNameC ? std::string(padNameC) : "";
+  if (padNameC) g_free(padNameC);
+
+  g_print("Incoming pad %s: assuming raw H.264\n", padName.c_str());
 
   // Choose and reserve a free video slot under lock to avoid races between
   // concurrent pad-added callbacks that might otherwise pick the same slot.
@@ -210,7 +332,27 @@ void ParticipantManager::handlePadAdded(GstPad* pad) {
 
   g_print("H264 receive chain linked OK (slot %d) - simplified pipeline\n", slot_index);
 
-  inUse_[slot_index] = true;
+  {
+    std::lock_guard<std::mutex> lock(slotMutex_);
+    inUse_[slot_index] = true;
+    activeSessions_[pad] = {slot_index, parse, dec};
+
+    std::string pid = getParticipantIdFromPadName(padName);
+    if (!pid.empty()) {
+      participantPads_[pid].push_back(pad);
+      g_print("  Mapped pad to participant %s\n", pid.c_str());
+    } else {
+      g_print("  Could not parse participant ID from pad name %s\n", padName.c_str());
+    }
+
+    // Show the video item on the main thread
+    if (slot_index < static_cast<int>(videoItems_.size())) {
+      QQuickItem* item = videoItems_[slot_index];
+      if (item) {
+         QMetaObject::invokeMethod(item, [item](){ item->setVisible(true); }, Qt::QueuedConnection);
+      }
+    }
+  }
 
   char dot_name[128];
   g_snprintf(dot_name, sizeof(dot_name), "receive_%s", GST_PAD_NAME(pad));
@@ -218,5 +360,3 @@ void ParticipantManager::handlePadAdded(GstPad* pad) {
                             GST_DEBUG_GRAPH_SHOW_ALL,
                             dot_name);
 }
-
-

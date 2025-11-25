@@ -4,6 +4,8 @@
 #include <gst/gst.h>
 
 #include <vector>
+#include <map>
+#include <string>
 #include <mutex>
 
 class QQuickWindow;
@@ -30,14 +32,22 @@ public:
 private:
   // Static thunks for GObject signals
   static void onPadAdded(GstElement* /*jitsibin*/, GstPad* pad, gpointer user_data);
+  static void onParticipantJoined(GstElement* /*jitsibin*/, const gchar* participant_id, const gchar* nick, gpointer user_data);
+  static void onParticipantLeft(GstElement* /*jitsibin*/, const gchar* participant_id, const gchar* nick, gpointer user_data);
+  static void onMuteStateChanged(GstElement* /*jitsibin*/, const gchar* participant_id, gboolean is_audio, gboolean new_muted, gpointer user_data);
   static void onFinished(GstElement* /*jitsibin*/, gboolean success, gpointer user_data);
 
   // Instance handlers
   void handlePadAdded(GstPad* pad);
+  void handleParticipantJoined(const gchar* participant_id, const gchar* nick);
+  void handleParticipantLeft(const gchar* participant_id, const gchar* nick);
+  void handleMuteStateChanged(const gchar* participant_id, gboolean is_audio, gboolean new_muted);
   void handleFinished(gboolean success);
 
   // Helpers
   int acquireFreeSlotLocked();
+  void teardownPad(GstPad* pad);
+  std::string getParticipantIdFromPadName(const std::string& padName);
 
 private:
   GstElement* pipeline_;
@@ -49,10 +59,19 @@ private:
   std::vector<GstElement*> gluploads_;
   std::vector<GstElement*> glcolorconverts_;
   std::vector<GstElement*> sinks_;
+  std::vector<QQuickItem*> videoItems_;
   std::vector<bool> inUse_;
 
   // Guards access to slot vectors and inUse_ during pad-added handling
   std::mutex slotMutex_;
+
+  struct ReceiveSession {
+    int slotIndex;
+    GstElement* parser;
+    GstElement* decoder;
+  };
+  std::map<GstPad*, ReceiveSession> activeSessions_;
+  std::map<std::string, std::vector<GstPad*>> participantPads_;
 };
 
 
