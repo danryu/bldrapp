@@ -94,11 +94,15 @@ bool AppController::isConnected() const {
 void AppController::teardown() {
   if (!conference_) return;
   GstElement* pipeline = conference_->pipeline();
+  
+  // Reset conference first to destroy participants and send pipeline
+  // while the pipeline object is still valid.
+  conference_.reset();
+  
   if (pipeline) {
     gst_element_set_state(pipeline, GST_STATE_NULL);
     gst_object_unref(pipeline);
   }
-  conference_.reset();
   emit connectedChanged();
 }
 
