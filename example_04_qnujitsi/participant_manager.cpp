@@ -163,17 +163,29 @@ std::string ParticipantManager::getParticipantIdFromPadName(const std::string& p
   return padName.substr(0, j);
 }
 
+std::string ParticipantManager::getCodecFromPadName(const std::string& padName) {
+  // Format: participantId_CODEC_ssrc
+  // Search from right to find the codec between the two underscores
+  auto i = padName.rfind('_');
+  if (i == std::string::npos || i == 0) return "";
+  
+  auto j = padName.rfind('_', i - 1);
+  if (j == std::string::npos) return "";
+  
+  return padName.substr(j + 1, i - j - 1);
+}
+
 void ParticipantManager::teardownPad(GstPad* pad) {
   std::lock_guard<std::mutex> lock(slotMutex_);
   auto it = activeSessions_.find(pad);
   if (it == activeSessions_.end()) {
-    // Could be already torn down
+    // Could be already torn down or might be an audio pad
     return;
   }
 
   const auto& session = it->second;
   int slotIndex = session.slotIndex;
-  g_print("  Cleaning up slot %d (parser=%p, decoder=%p)\n", slotIndex, session.parser, session.decoder);
+  g_print("  Cleaning up video slot %d (parser=%p, decoder=%p)\n", slotIndex, session.parser, session.decoder);
 
   // 1. Unlink decoder -> videoconvert (the slot's permanent input)
   GstElement* slotVideoconvert = videoconverts_[slotIndex];
@@ -203,7 +215,35 @@ void ParticipantManager::teardownPad(GstPad* pad) {
   }
 
   activeSessions_.erase(it);
-  g_print("  Slot %d freed.\n", slotIndex);
+  g_print("  Video slot %d freed.\n", slotIndex);
+}
+
+void ParticipantManager::teardownAudioPad(GstPad* pad) {
+  std::lock_guard<std::mutex> lock(slotMutex_);
+  auto it = audioSessions_.find(pad);
+  if (it == audioSessions_.end()) {
+    return;
+  }
+
+  const auto& session = it->second;
+  g_print("  Cleaning up audio session (decoder=%p, convert=%p, resample=%p, sink=%p)\n",
+          session.decoder, session.convert, session.resample, session.sink);
+
+  // Set elements to NULL and remove from pipeline
+  auto removeElement = [this](GstElement* elem) {
+    if (elem) {
+      gst_element_set_state(elem, GST_STATE_NULL);
+      gst_bin_remove(GST_BIN(pipeline_), elem);
+    }
+  };
+
+  removeElement(session.sink);
+  removeElement(session.resample);
+  removeElement(session.convert);
+  removeElement(session.decoder);
+
+  audioSessions_.erase(it);
+  g_print("  Audio session freed.\n");
 }
 
 void ParticipantManager::handleParticipantJoined(const gchar* participant_id, const gchar* nick) {
@@ -233,8 +273,10 @@ void ParticipantManager::handleParticipantLeft(const gchar* participant_id, cons
 
   for (GstPad* pad : padsToTeardown) {
      g_print("  Tearing down pad for participant %s\n", participant_id);
-     // Drop lock before calling teardownPad because it acquires lock
+     // Try video teardown first, then audio
+     // Note: teardownPad and teardownAudioPad acquire their own locks
      teardownPad(pad);
+     teardownAudioPad(pad);
   }
 }
 
@@ -249,7 +291,89 @@ void ParticipantManager::handlePadAdded(GstPad* pad) {
   std::string padName = padNameC ? std::string(padNameC) : "";
   if (padNameC) g_free(padNameC);
 
-  g_print("Incoming pad %s: assuming raw H.264\n", padName.c_str());
+  // Parse codec from pad name (format: participantId_CODEC_ssrc)
+  std::string codec = getCodecFromPadName(padName);
+  g_print("Incoming pad %s: codec=%s\n", padName.c_str(), codec.c_str());
+
+  // Route to appropriate handler based on codec
+  if (codec == "OPUS") {
+    handleAudioPadAdded(pad, padName);
+  } else if (codec == "H264" || codec == "VP8" || codec == "VP9" || codec.empty()) {
+    // Treat unknown/empty as H264 for backwards compatibility
+    handleVideoPadAdded(pad, padName, codec.empty() ? "H264" : codec);
+  } else {
+    g_printerr("Unknown codec %s in pad %s, ignoring\n", codec.c_str(), padName.c_str());
+  }
+}
+
+void ParticipantManager::handleAudioPadAdded(GstPad* pad, const std::string& padName) {
+  g_print("Setting up audio receive chain for pad %s\n", padName.c_str());
+
+  // Create audio receive chain: opusdec -> audioconvert -> audioresample -> autoaudiosink
+  GstElement* dec = gst_element_factory_make("opusdec", nullptr);
+  GstElement* conv = gst_element_factory_make("audioconvert", nullptr);
+  GstElement* resample = gst_element_factory_make("audioresample", nullptr);
+  GstElement* sink = gst_element_factory_make("autoaudiosink", nullptr);
+
+  if (!dec || !conv || !resample || !sink) {
+    g_printerr("Failed to create audio receive chain elements\n");
+    if (dec) gst_object_unref(dec);
+    if (conv) gst_object_unref(conv);
+    if (resample) gst_object_unref(resample);
+    if (sink) gst_object_unref(sink);
+    return;
+  }
+
+  // Configure sink for low latency
+  g_object_set(G_OBJECT(sink),
+               "sync", TRUE,
+               NULL);
+
+  gst_bin_add_many(GST_BIN(pipeline_), dec, conv, resample, sink, NULL);
+
+  // Link jitsibin pad -> opusdec
+  {
+    GstPad* sinkpad = gst_element_get_static_pad(dec, "sink");
+    if (!sinkpad) {
+      g_printerr("Failed to get opusdec sink pad\n");
+      return;
+    }
+    GstPadLinkReturn linkret = gst_pad_link(pad, sinkpad);
+    gst_object_unref(sinkpad);
+    if (linkret != GST_PAD_LINK_OK) {
+      g_printerr("Failed to link jitsibin pad -> opusdec: %d\n", linkret);
+      return;
+    }
+  }
+
+  // Link audio chain
+  if (!gst_element_link_many(dec, conv, resample, sink, NULL)) {
+    g_printerr("Failed to link audio receive chain\n");
+    return;
+  }
+
+  // Sync states
+  gst_element_sync_state_with_parent(sink);
+  gst_element_sync_state_with_parent(resample);
+  gst_element_sync_state_with_parent(conv);
+  gst_element_sync_state_with_parent(dec);
+
+  g_print("Audio receive chain linked OK for pad %s\n", padName.c_str());
+
+  {
+    std::lock_guard<std::mutex> lock(slotMutex_);
+    audioSessions_[pad] = {dec, conv, resample, sink};
+
+    std::string pid = getParticipantIdFromPadName(padName);
+    if (!pid.empty()) {
+      participantPads_[pid].push_back(pad);
+      g_print("  Mapped audio pad to participant %s\n", pid.c_str());
+    }
+  }
+}
+
+void ParticipantManager::handleVideoPadAdded(GstPad* pad, const std::string& padName, const std::string& codec) {
+  g_print("Setting up video receive chain for pad %s (codec=%s)\n", padName.c_str(), codec.c_str());
 
   // Choose and reserve a free video slot under lock to avoid races between
   // concurrent pad-added callbacks that might otherwise pick the same slot.

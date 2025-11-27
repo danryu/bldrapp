@@ -133,9 +133,33 @@ Also removed the fallback sequential enumeration (it can't work for CoreAudio) a
 | `opusenc` | Opus audio encoding |
 | `avfvideosrc` | macOS AVFoundation video capture |
 
+## Audio Receive Handling
+
+### Problem
+
+After enabling audio send, incoming Opus audio pads from jitsibin were not handled. The code assumed all pads were H.264 video, causing:
+```
+Incoming pad f1c70e58_OPUS_2667144609: assuming raw H.264
+Failed to link jitsibin pad -> h264parse
+```
+
+### Solution
+
+Updated `ParticipantManager` to detect codec from pad name and route to appropriate handler:
+
+1. **getCodecFromPadName()** - Parses codec from pad name (format: `participantId_CODEC_ssrc`)
+2. **handlePadAdded()** - Routes to `handleAudioPadAdded()` for OPUS, `handleVideoPadAdded()` for H264/VP8/VP9
+3. **handleAudioPadAdded()** - Creates audio receive chain:
+   ```
+   jitsibin pad → opusdec → audioconvert → audioresample → autoaudiosink
+   ```
+4. **AudioSession struct** - Tracks audio chain elements for cleanup
+5. **teardownAudioPad()** - Cleans up audio sessions when participant leaves
+
 ## Notes
 
 - Audio device selection is disabled while connected (same as camera)
 - Empty `audioDeviceIndex` means "use system default microphone"
 - CoreAudio device IDs are stable across reboots but may change when devices are unplugged/replugged
+- Each participant can have both video and audio pads (tracked separately)
 

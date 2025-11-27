@@ -39,6 +39,8 @@ private:
 
   // Instance handlers
   void handlePadAdded(GstPad* pad);
+  void handleVideoPadAdded(GstPad* pad, const std::string& padName, const std::string& codec);
+  void handleAudioPadAdded(GstPad* pad, const std::string& padName);
   void handleParticipantJoined(const gchar* participant_id, const gchar* nick);
   void handleParticipantLeft(const gchar* participant_id, const gchar* nick);
   void handleMuteStateChanged(const gchar* participant_id, gboolean is_audio, gboolean new_muted);
@@ -47,7 +49,9 @@ private:
   // Helpers
   int acquireFreeSlotLocked();
   void teardownPad(GstPad* pad);
+  void teardownAudioPad(GstPad* pad);
   std::string getParticipantIdFromPadName(const std::string& padName);
+  std::string getCodecFromPadName(const std::string& padName);
 
 private:
   GstElement* pipeline_;
@@ -71,6 +75,16 @@ private:
     GstElement* decoder;
   };
   std::map<GstPad*, ReceiveSession> activeSessions_;
+  
+  // Audio receive sessions: jitsibin pad -> audio chain elements
+  struct AudioSession {
+    GstElement* decoder;      // opusdec
+    GstElement* convert;      // audioconvert
+    GstElement* resample;     // audioresample
+    GstElement* sink;         // autoaudiosink
+  };
+  std::map<GstPad*, AudioSession> audioSessions_;
+  
   std::map<std::string, std::vector<GstPad*>> participantPads_;
 };
 

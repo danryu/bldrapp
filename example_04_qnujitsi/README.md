@@ -24,10 +24,15 @@ qnujitsi is a minimal Qt/QML application that demonstrates real-time audio/video
 │ osxaudiosrc → audioconvert → opusenc → jitsibin │
 └──────────────────────────────────────────────────┘
 
-┌─────────────────── Receive Path (per participant) ───────────────────┐
-│ jitsibin:src_* → h264parse → vtdec → videoconvert → queue →          │
-│                  glupload → glcolorconvert → qml6glsink (slot 1-3)   │
-└───────────────────────────────────────────────────────────────────────┘
+┌─────────────────── Video Receive Path (per participant) ────────────────┐
+│ jitsibin:src_*_H264_* → h264parse → vtdec → videoconvert → queue →      │
+│                         glupload → glcolorconvert → qml6glsink (slot 1-3)│
+└──────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────── Audio Receive Path (per participant) ────────────────┐
+│ jitsibin:src_*_OPUS_* → opusdec → audioconvert → audioresample →        │
+│                         autoaudiosink                                    │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Slot Allocation
@@ -47,11 +52,13 @@ QML declares 4 `GstGLQt6VideoItem` elements (`videoItem0` - `videoItem3`) in a 2
 
 When jitsibin emits `pad-added` signal with new remote participant stream:
 
-1. ParticipantManager::handlePadAdded() acquires free slot (1-3) under mutex
-2. Creates receive chain: h264parse → vtdec → existing slot videoconvert
-3. Links jitsibin src pad to h264parse
+1. **ParticipantManager::handlePadAdded()** parses codec from pad name (format: `participantId_CODEC_ssrc`)
+2. Routes to appropriate handler based on codec:
+   - **OPUS (audio):** Creates audio chain: opusdec → audioconvert → audioresample → autoaudiosink
+   - **H264 (video):** Acquires free slot (1-3), creates chain: h264parse → vtdec → existing slot videoconvert
+3. Links jitsibin src pad to decoder
 4. Syncs element states with parent pipeline
-5. Marks slot as in-use
+5. For video: marks slot as in-use and shows video item
 
 ### Thread Safety
 
@@ -68,6 +75,9 @@ When jitsibin emits `pad-added` signal with new remote participant stream:
 - **tee** - Splits raw video to local preview and encoder
 - **osxaudiosrc** - macOS audio input capture (CoreAudio)
 - **avfvideosrc** - macOS video capture (AVFoundation)
+- **opusdec** - Opus audio decoder for incoming audio
+- **opusenc** - Opus audio encoder for outgoing audio
+- **autoaudiosink** - Auto-detected audio output sink
 
 ### Configuration
 
