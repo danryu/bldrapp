@@ -226,10 +226,10 @@ void ParticipantManager::teardownAudioPad(GstPad* pad) {
   }
 
   const auto& session = it->second;
-  g_print("  Cleaning up audio session (decoder=%p, convert=%p, resample=%p, sink=%p)\n",
-          session.decoder, session.convert, session.resample, session.sink);
+  g_print("  Cleaning up audio session (decoder=%p, convert=%p, resample=%p, queue=%p, sink=%p)\n",
+          session.decoder, session.convert, session.resample, session.queue, session.sink);
 
-  // Set elements to NULL and remove from pipeline
+  // Set elements to NULL and remove from pipeline (downstream to upstream order)
   auto removeElement = [this](GstElement* elem) {
     if (elem) {
       gst_element_set_state(elem, GST_STATE_NULL);
@@ -238,6 +238,7 @@ void ParticipantManager::teardownAudioPad(GstPad* pad) {
   };
 
   removeElement(session.sink);
+  removeElement(session.queue);
   removeElement(session.resample);
   removeElement(session.convert);
   removeElement(session.decoder);
@@ -309,29 +310,59 @@ void ParticipantManager::handlePadAdded(GstPad* pad) {
 void ParticipantManager::handleAudioPadAdded(GstPad* pad, const std::string& padName) {
   g_print("Setting up audio receive chain for pad %s\n", padName.c_str());
 
-  // Create audio receive chain: opusdec -> audioconvert -> audioresample -> autoaudiosink
+  // Create audio receive chain: opusdec -> audioconvert -> audioresample -> queue -> osxaudiosink
+  // The queue decouples audio processing from the rest of the pipeline, preventing
+  // clock/timing disruption when audio is added to an already-running pipeline.
   GstElement* dec = gst_element_factory_make("opusdec", nullptr);
   GstElement* conv = gst_element_factory_make("audioconvert", nullptr);
   GstElement* resample = gst_element_factory_make("audioresample", nullptr);
-  GstElement* sink = gst_element_factory_make("autoaudiosink", nullptr);
+  GstElement* queue = gst_element_factory_make("queue", nullptr);
+  GstElement* sink = gst_element_factory_make("osxaudiosink", nullptr);  // Direct sink, not autoaudiosink
 
-  if (!dec || !conv || !resample || !sink) {
+  if (!dec || !conv || !resample || !queue || !sink) {
     g_printerr("Failed to create audio receive chain elements\n");
     if (dec) gst_object_unref(dec);
     if (conv) gst_object_unref(conv);
     if (resample) gst_object_unref(resample);
+    if (queue) gst_object_unref(queue);
     if (sink) gst_object_unref(sink);
     return;
   }
 
-  // Configure sink for low latency
-  g_object_set(G_OBJECT(sink),
-               "sync", TRUE,
+  // Configure queue for low-latency buffering
+  g_object_set(G_OBJECT(queue),
+               "max-size-buffers", 2,
+               "max-size-bytes", 0,
+               "max-size-time", 0,
+               "leaky", 2,  // GST_QUEUE_LEAK_DOWNSTREAM - drop old if full
                NULL);
 
-  gst_bin_add_many(GST_BIN(pipeline_), dec, conv, resample, sink, NULL);
+  // Configure sink for real-time playback without clock sync
+  // CRITICAL: sync=FALSE prevents audio sink from affecting pipeline clock,
+  // which would otherwise cause video frame rate to drop significantly.
+  // In real-time conferencing, jitsibin's jitter buffer handles timing.
+  g_object_set(G_OBJECT(sink),
+               "sync", FALSE,   // Play audio immediately without clock sync
+               "async", FALSE,  // Don't affect pipeline state transitions
+               NULL);
 
-  // Link jitsibin pad -> opusdec
+  gst_bin_add_many(GST_BIN(pipeline_), dec, conv, resample, queue, sink, NULL);
+
+  // Link audio chain FIRST (before linking to jitsibin pad)
+  if (!gst_element_link_many(dec, conv, resample, queue, sink, NULL)) {
+    g_printerr("Failed to link audio receive chain\n");
+    return;
+  }
+
+  // Sync states upstream-to-downstream order BEFORE linking source pad
+  // This ensures elements are ready to receive data
+  gst_element_sync_state_with_parent(dec);
+  gst_element_sync_state_with_parent(conv);
+  gst_element_sync_state_with_parent(resample);
+  gst_element_sync_state_with_parent(queue);
+  gst_element_sync_state_with_parent(sink);
+
+  // NOW link jitsibin pad -> opusdec (after chain is ready)
   {
     GstPad* sinkpad = gst_element_get_static_pad(dec, "sink");
     if (!sinkpad) {
@@ -346,23 +377,11 @@ void ParticipantManager::handleAudioPadAdded(GstPad* pad, const std::string& pad
     }
   }
 
-  // Link audio chain
-  if (!gst_element_link_many(dec, conv, resample, sink, NULL)) {
-    g_printerr("Failed to link audio receive chain\n");
-    return;
-  }
-
-  // Sync states
-  gst_element_sync_state_with_parent(sink);
-  gst_element_sync_state_with_parent(resample);
-  gst_element_sync_state_with_parent(conv);
-  gst_element_sync_state_with_parent(dec);
-
   g_print("Audio receive chain linked OK for pad %s\n", padName.c_str());
 
   {
     std::lock_guard<std::mutex> lock(slotMutex_);
-    audioSessions_[pad] = {dec, conv, resample, sink};
+    audioSessions_[pad] = {dec, conv, resample, queue, sink};
 
     std::string pid = getParticipantIdFromPadName(padName);
     if (!pid.empty()) {

@@ -31,7 +31,7 @@ qnujitsi is a minimal Qt/QML application that demonstrates real-time audio/video
 
 ┌─────────────────── Audio Receive Path (per participant) ────────────────┐
 │ jitsibin:src_*_OPUS_* → opusdec → audioconvert → audioresample →        │
-│                         autoaudiosink                                    │
+│                         queue → osxaudiosink                             │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -54,10 +54,10 @@ When jitsibin emits `pad-added` signal with new remote participant stream:
 
 1. **ParticipantManager::handlePadAdded()** parses codec from pad name (format: `participantId_CODEC_ssrc`)
 2. Routes to appropriate handler based on codec:
-   - **OPUS (audio):** Creates audio chain: opusdec → audioconvert → audioresample → autoaudiosink
+   - **OPUS (audio):** Creates audio chain: opusdec → audioconvert → audioresample → queue → osxaudiosink
    - **H264 (video):** Acquires free slot (1-3), creates chain: h264parse → vtdec → existing slot videoconvert
-3. Links jitsibin src pad to decoder
-4. Syncs element states with parent pipeline
+3. For audio: links and syncs chain first, then connects source pad (prevents clock disruption)
+4. For video: links jitsibin src pad to h264parse, syncs element states
 5. For video: marks slot as in-use and shows video item
 
 ### Thread Safety
@@ -77,7 +77,7 @@ When jitsibin emits `pad-added` signal with new remote participant stream:
 - **avfvideosrc** - macOS video capture (AVFoundation)
 - **opusdec** - Opus audio decoder for incoming audio
 - **opusenc** - Opus audio encoder for outgoing audio
-- **autoaudiosink** - Auto-detected audio output sink
+- **osxaudiosink** - macOS CoreAudio output sink (direct, not autodetect)
 
 ### Configuration
 
@@ -96,11 +96,13 @@ Jitsibin properties set in Conference::build():
 
 - **Encoder queue:** Leaky downstream, unbounded size (immediate encoding)
 - **Local preview queue:** Leaky downstream, 5 buffer limit (drop old frames)
-- **Receive queue:** Leaky downstream, 5 buffer limit (smooth GL delivery)
+- **Video receive queue:** Leaky downstream, 5 buffer limit (smooth GL delivery)
+- **Audio receive queue:** Leaky downstream, 2 buffer limit (decoupling from video pipeline)
 - **vtenc_h264:** `realtime=TRUE`, `allow-frame-reordering=FALSE`
 - **h264parse:** `config-interval=1` (SPS/PPS with every IDR)
 - **vtdec:** `automatic-request-sync-points=TRUE` with corrupt output flag
 - **qml6glsink:** `sync=TRUE`, `async=FALSE` (frame timing without artifacts)
+- **osxaudiosink:** `sync=FALSE`, `async=FALSE` (immediate playback, no clock interference)
 
 ### Qt/GStreamer Integration
 

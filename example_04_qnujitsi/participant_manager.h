@@ -81,7 +81,8 @@ private:
     GstElement* decoder;      // opusdec
     GstElement* convert;      // audioconvert
     GstElement* resample;     // audioresample
-    GstElement* sink;         // autoaudiosink
+    GstElement* queue;        // queue (decoupling buffer)
+    GstElement* sink;         // osxaudiosink
   };
   std::map<GstPad*, AudioSession> audioSessions_;
   

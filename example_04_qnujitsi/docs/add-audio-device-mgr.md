@@ -135,7 +135,7 @@ Also removed the fallback sequential enumeration (it can't work for CoreAudio) a
 
 ## Audio Receive Handling
 
-### Problem
+### Problem 1: Unhandled Audio Pads
 
 After enabling audio send, incoming Opus audio pads from jitsibin were not handled. The code assumed all pads were H.264 video, causing:
 ```
@@ -149,12 +149,71 @@ Updated `ParticipantManager` to detect codec from pad name and route to appropri
 
 1. **getCodecFromPadName()** - Parses codec from pad name (format: `participantId_CODEC_ssrc`)
 2. **handlePadAdded()** - Routes to `handleAudioPadAdded()` for OPUS, `handleVideoPadAdded()` for H264/VP8/VP9
-3. **handleAudioPadAdded()** - Creates audio receive chain:
-   ```
-   jitsibin pad → opusdec → audioconvert → audioresample → autoaudiosink
-   ```
+3. **handleAudioPadAdded()** - Creates audio receive chain
 4. **AudioSession struct** - Tracks audio chain elements for cleanup
 5. **teardownAudioPad()** - Cleans up audio sessions when participant leaves
+
+### Problem 2: Video Frame Rate Drop When Audio Added Dynamically
+
+**Symptom:** When a remote participant unmuted audio *after* qnujitsi had already joined:
+- Video frame rate dropped from 30fps to ~5-15fps
+- Video latency increased to ~800ms
+- No issue if participant was already unmuted when qnujitsi joined
+
+**Root Cause:** Adding audio sink to a running PLAYING pipeline caused clock/timing disruption:
+1. `autoaudiosink` is a wrapper bin - state transitions affected the whole pipeline
+2. `async` property wasn't being applied (`autoaudiosink` doesn't support it directly)
+3. State syncing was done sink-first (wrong order for hot-adding elements)
+4. Linking to jitsibin pad before elements were ready caused data to flow into unprepared chain
+
+### Solution
+
+Complete rewrite of `handleAudioPadAdded()`:
+
+1. **Use `osxaudiosink` directly** instead of `autoaudiosink`
+   - Direct control over `sync` and `async` properties
+   - No lazy sink creation during state transitions
+
+2. **Add a queue before the sink** for decoupling
+   - Prevents audio processing from blocking video pipeline
+   - Leaky downstream to drop old buffers if queue fills
+
+3. **Correct state sync order** (upstream → downstream)
+   ```cpp
+   gst_element_sync_state_with_parent(dec);      // First
+   gst_element_sync_state_with_parent(conv);
+   gst_element_sync_state_with_parent(resample);
+   gst_element_sync_state_with_parent(queue);
+   gst_element_sync_state_with_parent(sink);     // Last
+   ```
+
+4. **Link chain before connecting to jitsibin**
+   - Build and sync the entire audio chain first
+   - Only then connect the source pad
+   - Data flows into an already-running chain
+
+### Final Audio Receive Chain
+
+```
+jitsibin pad → opusdec → audioconvert → audioresample → queue → osxaudiosink
+                                                          ↑
+                                               (decoupling buffer,
+                                                leaky downstream)
+```
+
+### Audio Sink Configuration
+
+```cpp
+g_object_set(G_OBJECT(sink),
+             "sync", FALSE,   // Play immediately without clock sync
+             "async", FALSE,  // Don't affect pipeline state transitions
+             NULL);
+
+g_object_set(G_OBJECT(queue),
+             "max-size-buffers", 2,
+             "leaky", 2,      // GST_QUEUE_LEAK_DOWNSTREAM
+             NULL);
+```
 
 ## Notes
 
@@ -162,4 +221,5 @@ Updated `ParticipantManager` to detect codec from pad name and route to appropri
 - Empty `audioDeviceIndex` means "use system default microphone"
 - CoreAudio device IDs are stable across reboots but may change when devices are unplugged/replugged
 - Each participant can have both video and audio pads (tracked separately)
+- Audio receive uses `sync=FALSE` to prevent clock interference with video
 
