@@ -8,12 +8,17 @@
 
 #include "conference.h"
 #include "camera_manager.h"
+#include "audio_manager.h"
 
 AppController::AppController(QObject* parent)
   : QObject(parent) {
   // Initialize camera manager and enumerate cameras
   cameraManager_ = std::make_unique<CameraManager>(this);
   cameraManager_->enumerateCameras();
+
+  // Initialize audio manager and enumerate audio devices
+  audioManager_ = std::make_unique<AudioManager>(this);
+  audioManager_->enumerateAudioDevices();
 
   // Ensure graceful teardown on app exit
   if (QCoreApplication::instance()) {
@@ -70,7 +75,18 @@ bool AppController::connectToConference(QQuickWindow* rootWindow,
     }
   }
 
-  if (!conference_->initQmlSlotsAndSend(rootWindow, videoWidth, videoHeight, cameraDeviceIndex)) {
+  // Get selected audio device
+  const char* audioDeviceIndex = nullptr;
+  if (audioManager_) {
+    const AudioDevice* selectedAudio = audioManager_->selectedAudioDevice();
+    if (selectedAudio) {
+      audioDeviceIndex = selectedAudio->deviceName.c_str();
+      qDebug() << "Using audio device:" << QString::fromStdString(selectedAudio->displayName)
+               << "with device index:" << audioDeviceIndex;
+    }
+  }
+
+  if (!conference_->initQmlSlotsAndSend(rootWindow, videoWidth, videoHeight, cameraDeviceIndex, audioDeviceIndex)) {
     conference_.reset();
     emit error(QStringLiteral("Failed to initialize QML slots and send pipeline"));
     return false;

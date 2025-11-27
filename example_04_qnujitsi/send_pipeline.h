@@ -12,16 +12,18 @@ public:
   // localSlotVideoconvert: if non-null, tee raw video to this element for local preview
   // cameraDeviceIndex: camera device index for avfvideosrc (e.g., "0", "1", etc.)
   //                    if empty or nullptr, uses videotestsrc
+  // audioDeviceIndex: audio device index for osxaudiosrc (e.g., "0", "1", etc.)
+  //                   if empty or nullptr, uses default audio device
   // Returns false on failure.
   bool buildAndLink(int videoWidth, int videoHeight, GstElement* localSlotVideoconvert = nullptr,
-                    const char* cameraDeviceIndex = nullptr);
+                    const char* cameraDeviceIndex = nullptr, const char* audioDeviceIndex = nullptr);
 
   // Sync all elements with parent pipeline state (for hot-swapping)
   bool syncStateWithParent();
 
 private:
   bool createElements(bool withLocalPreview, bool useCamera);
-  void configureElements(int videoWidth, int videoHeight, const char* cameraDeviceIndex);
+  void configureElements(int videoWidth, int videoHeight, const char* cameraDeviceIndex, const char* audioDeviceIndex);
   bool addToBinAndLink(int videoWidth, int videoHeight, GstElement* localSlotVideoconvert);
 
 private:
@@ -40,7 +42,8 @@ private:
   GstElement* video_queue_ {nullptr};
 
   // Audio send
-  GstElement* audiotestsrc_ {nullptr};
+  GstElement* audiosrc_ {nullptr};       // osxaudiosrc for microphone capture
+  GstElement* audioconvert_ {nullptr};   // Format conversion for encoder
   GstElement* opusenc_ {nullptr};
 
   bool useCamera_ {false};

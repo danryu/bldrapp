@@ -323,6 +323,7 @@ meson setup builddir \
 	-Dgst-plugins-good:autodetect=enabled \
 	-Dgst-plugins-good:vpx=enabled \
 	-Dgst-plugins-good:osxvideo=enabled \
+	-Dgst-plugins-good:osxaudio=enabled \
 	-Dgst-plugins-good:qt6=enabled \
 	-Dgst-plugins-bad:dtls=enabled \
 	-Dgst-plugins-bad:srtp=enabled \

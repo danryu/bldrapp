@@ -10,6 +10,8 @@ qnujitsi is a minimal Qt/QML application that demonstrates real-time audio/video
 - **Conference** - Orchestrates pipeline, jitsibin, send, and participant management
 - **SendPipeline** - Encapsulates local AV send path with tee for local preview
 - **ParticipantManager** - Manages receive slots and dynamic pad handling for remote participants
+- **CameraManager** - Enumerates video capture devices via GstDeviceMonitor
+- **AudioManager** - Enumerates audio input devices via GstDeviceMonitor
 
 ### Pipeline Overview
 
@@ -19,7 +21,7 @@ qnujitsi is a minimal Qt/QML application that demonstrates real-time audio/video
 │   ├─ queue → videoconvert (slot 0) → [local]    │
 │   └─ vtenc_h264 → h264parse → queue → jitsibin  │
 │                                                  │
-│ audiotestsrc → opusenc → jitsibin               │
+│ osxaudiosrc → audioconvert → opusenc → jitsibin │
 └──────────────────────────────────────────────────┘
 
 ┌─────────────────── Receive Path (per participant) ───────────────────┐
@@ -64,6 +66,8 @@ When jitsibin emits `pad-added` signal with new remote participant stream:
 - **vtdec** - Hardware H.264 decoder with automatic sync point recovery
 - **qml6glsink** - Qt6 QML video sink with OpenGL texture sharing
 - **tee** - Splits raw video to local preview and encoder
+- **osxaudiosrc** - macOS audio input capture (CoreAudio)
+- **avfvideosrc** - macOS video capture (AVFoundation)
 
 ### Configuration
 
@@ -109,7 +113,7 @@ rm -fr build/ && cmake -B build -S . && cmake --build build -j
 ./build/qnujitsi
 ```
 
-Enter Jitsi server, room name, and resolution in UI toolbar, then click Connect.
+Select camera and microphone from dropdowns, enter Jitsi server, room name, and resolution in UI toolbar, then click Connect.
 
 ## Dependencies
 

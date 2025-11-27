@@ -20,7 +20,7 @@ ApplicationWindow {
         RowLayout {
             anchors.fill: parent
             spacing: 8
-            Label { text: "Camera:"; color: "white" }
+            Label { text: "Cam:"; color: "white" }
             ComboBox {
                 id: cameraCombo
                 model: AppController.cameraManager.cameraNames
@@ -31,15 +31,28 @@ ApplicationWindow {
                         AppController.cameraManager.currentCameraIndex = currentIndex
                     }
                 }
-                Layout.preferredWidth: 160
+                Layout.preferredWidth: 140
+            }
+            Label { text: "Mic:"; color: "white" }
+            ComboBox {
+                id: audioCombo
+                model: AppController.audioManager.audioDeviceNames
+                currentIndex: AppController.audioManager.currentAudioDeviceIndex
+                enabled: !AppController.connected
+                onCurrentIndexChanged: {
+                    if (currentIndex !== AppController.audioManager.currentAudioDeviceIndex) {
+                        AppController.audioManager.currentAudioDeviceIndex = currentIndex
+                    }
+                }
+                Layout.preferredWidth: 140
             }
             Label { text: "Host:"; color: "white" }
-            TextField { id: hostField; placeholderText: "meet.jit.si"; text: "98sipala.ki.kormix.io"; selectByMouse: true; Layout.preferredWidth: 180 }
+            TextField { id: hostField; placeholderText: "meet.jit.si"; text: "x56rp456.ki.kormix.io"; selectByMouse: true; Layout.preferredWidth: 160 }
             Label { text: "Room:"; color: "white" }
-            TextField { id: roomField; placeholderText: "myroom"; text: "video"; selectByMouse: true; Layout.preferredWidth: 140 }
+            TextField { id: roomField; placeholderText: "myroom"; text: "video"; selectByMouse: true; Layout.preferredWidth: 100 }
             Label { text: "WxH:"; color: "white" }
-            TextField { id: widthField; placeholderText: "1280"; text: "1280"; inputMethodHints: Qt.ImhDigitsOnly; Layout.preferredWidth: 70 }
-            TextField { id: heightField; placeholderText: "720"; text: "720"; inputMethodHints: Qt.ImhDigitsOnly; Layout.preferredWidth: 60 }
+            TextField { id: widthField; placeholderText: "1280"; text: "1280"; inputMethodHints: Qt.ImhDigitsOnly; Layout.preferredWidth: 60 }
+            TextField { id: heightField; placeholderText: "720"; text: "720"; inputMethodHints: Qt.ImhDigitsOnly; Layout.preferredWidth: 50 }
             Button {
                 id: connectButton
                 text: "Connect"
