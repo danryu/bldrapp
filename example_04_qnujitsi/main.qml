@@ -86,38 +86,79 @@ ApplicationWindow {
         }
     }
 
-    GridLayout {
-        id: grid
+    Item {
+        id: videoContainer
         anchors.fill: parent
-        columns: 2
-        rowSpacing: 8
-        columnSpacing: 8
         anchors.margins: 8
 
-        // Pre-create a few slots; C++ will bind sinks to these in order.
-        VideoSlot {
-            videoObjectName: "videoItem0"
-            participantInfo: AppController.slot0Info
-            Layout.fillWidth: true
-            Layout.fillHeight: true
+        // Calculate active participants and optimal layout
+        property var activeSlots: [
+            AppController.slot0Info,
+            AppController.slot1Info,
+            AppController.slot2Info,
+            AppController.slot3Info
+        ]
+
+        property int activeCount: {
+            var count = 0
+            for (var i = 0; i < activeSlots.length; i++) {
+                if (activeSlots[i] && activeSlots[i].isActive) count++
+            }
+            return count
         }
-        VideoSlot {
-            videoObjectName: "videoItem1"
-            participantInfo: AppController.slot1Info
-            Layout.fillWidth: true
-            Layout.fillHeight: true
+
+        // Dynamic grid columns: 1 participant = 1 col, 2 = 2 cols, 3+ = 2 cols
+        property int gridColumns: {
+            if (activeCount <= 0) return 1
+            if (activeCount === 1) return 1
+            if (activeCount === 2) return 2
+            return 2  // 3-4 participants: 2 columns
         }
-        VideoSlot {
-            videoObjectName: "videoItem2"
-            participantInfo: AppController.slot2Info
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-        }
-        VideoSlot {
-            videoObjectName: "videoItem3"
-            participantInfo: AppController.slot3Info
-            Layout.fillWidth: true
-            Layout.fillHeight: true
+
+        GridLayout {
+            id: grid
+            anchors.fill: parent
+            columns: videoContainer.gridColumns
+            rowSpacing: 8
+            columnSpacing: 8
+
+            // Pre-create a few slots; C++ will bind sinks to these in order.
+            VideoSlot {
+                videoObjectName: "videoItem0"
+                participantInfo: AppController.slot0Info
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                visible: AppController.slot0Info.isActive
+                Layout.preferredWidth: visible ? 100 : 0
+                Layout.preferredHeight: visible ? 100 : 0
+            }
+            VideoSlot {
+                videoObjectName: "videoItem1"
+                participantInfo: AppController.slot1Info
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                visible: AppController.slot1Info.isActive
+                Layout.preferredWidth: visible ? 100 : 0
+                Layout.preferredHeight: visible ? 100 : 0
+            }
+            VideoSlot {
+                videoObjectName: "videoItem2"
+                participantInfo: AppController.slot2Info
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                visible: AppController.slot2Info.isActive
+                Layout.preferredWidth: visible ? 100 : 0
+                Layout.preferredHeight: visible ? 100 : 0
+            }
+            VideoSlot {
+                videoObjectName: "videoItem3"
+                participantInfo: AppController.slot3Info
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                visible: AppController.slot3Info.isActive
+                Layout.preferredWidth: visible ? 100 : 0
+                Layout.preferredHeight: visible ? 100 : 0
+            }
         }
     }
 }
