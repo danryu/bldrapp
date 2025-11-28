@@ -10,6 +10,7 @@
 
 class QQuickWindow;
 class QQuickItem;
+class ParticipantInfo;
 
 class ParticipantManager {
 public:
@@ -28,6 +29,9 @@ public:
 
   // Reserve a slot for local preview (mark as in-use)
   void reserveSlot(int slotIndex);
+
+  // Set participant info objects for updating UI (pass array of 4 ParticipantInfo pointers)
+  void setParticipantInfoSlots(ParticipantInfo* slot0, ParticipantInfo* slot1, ParticipantInfo* slot2, ParticipantInfo* slot3);
 
 private:
   // Static thunks for GObject signals
@@ -85,8 +89,18 @@ private:
     GstElement* sink;         // osxaudiosink
   };
   std::map<GstPad*, AudioSession> audioSessions_;
-  
+
   std::map<std::string, std::vector<GstPad*>> participantPads_;
+
+  // Participant info for each slot (owned by AppController, not owned here)
+  std::vector<ParticipantInfo*> participantInfoSlots_;
+
+  // Track which participant ID is in which slot for quick lookup
+  std::map<std::string, int> participantIdToSlot_;
+  std::map<int, std::string> slotToParticipantId_;
+
+  // Store participant nicknames for display
+  std::map<std::string, std::string> participantNicks_;
 };
 
 

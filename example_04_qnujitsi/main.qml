@@ -95,9 +95,29 @@ ApplicationWindow {
         anchors.margins: 8
 
         // Pre-create a few slots; C++ will bind sinks to these in order.
-        GstGLQt6VideoItem { objectName: "videoItem0"; Layout.fillWidth: true; Layout.fillHeight: true }
-        GstGLQt6VideoItem { objectName: "videoItem1"; Layout.fillWidth: true; Layout.fillHeight: true }
-        GstGLQt6VideoItem { objectName: "videoItem2"; Layout.fillWidth: true; Layout.fillHeight: true }
-        GstGLQt6VideoItem { objectName: "videoItem3"; Layout.fillWidth: true; Layout.fillHeight: true }
+        VideoSlot {
+            videoObjectName: "videoItem0"
+            participantInfo: AppController.slot0Info
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+        }
+        VideoSlot {
+            videoObjectName: "videoItem1"
+            participantInfo: AppController.slot1Info
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+        }
+        VideoSlot {
+            videoObjectName: "videoItem2"
+            participantInfo: AppController.slot2Info
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+        }
+        VideoSlot {
+            videoObjectName: "videoItem3"
+            participantInfo: AppController.slot3Info
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+        }
     }
 }

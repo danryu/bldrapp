@@ -1,4 +1,5 @@
 #include "participant_manager.h"
+#include "participant_info.h"
 
 #include <QQmlApplicationEngine>
 #include <QQuickWindow>
@@ -102,6 +103,10 @@ void ParticipantManager::reserveSlot(int slotIndex) {
   }
   std::lock_guard<std::mutex> lock(slotMutex_);
   inUse_[slotIndex] = true;
+}
+
+void ParticipantManager::setParticipantInfoSlots(ParticipantInfo* slot0, ParticipantInfo* slot1, ParticipantInfo* slot2, ParticipantInfo* slot3) {
+  participantInfoSlots_ = {slot0, slot1, slot2, slot3};
 }
 
 void ParticipantManager::onPadAdded(GstElement* /*jitsibin*/, GstPad* pad, gpointer user_data) {
@@ -249,14 +254,17 @@ void ParticipantManager::teardownAudioPad(GstPad* pad) {
 
 void ParticipantManager::handleParticipantJoined(const gchar* participant_id, const gchar* nick) {
   g_print("ParticipantManager::handleParticipantJoined id=%s nick=%s\n", participant_id, nick);
+
+  std::lock_guard<std::mutex> lock(slotMutex_);
+  participantNicks_[std::string(participant_id)] = nick ? std::string(nick) : std::string(participant_id);
 }
 
 void ParticipantManager::handleParticipantLeft(const gchar* participant_id, const gchar* nick) {
   g_print("ParticipantManager::handleParticipantLeft id=%s nick=%s\n", participant_id, nick);
-  
+
   std::string pid(participant_id);
   std::vector<GstPad*> padsToTeardown;
-  
+
   {
     std::lock_guard<std::mutex> lock(slotMutex_);
     auto it = participantPads_.find(pid);
@@ -265,8 +273,24 @@ void ParticipantManager::handleParticipantLeft(const gchar* participant_id, cons
       // We will clear the entry now, as we are tearing them down
       participantPads_.erase(it);
     }
+
+    // Clear participant info if they have a slot assigned
+    auto slotIt = participantIdToSlot_.find(pid);
+    if (slotIt != participantIdToSlot_.end()) {
+      int slotIndex = slotIt->second;
+      if (slotIndex >= 0 && slotIndex < static_cast<int>(participantInfoSlots_.size()) && participantInfoSlots_[slotIndex]) {
+        QMetaObject::invokeMethod(participantInfoSlots_[slotIndex], [info = participantInfoSlots_[slotIndex]](){
+          info->reset();
+        }, Qt::QueuedConnection);
+      }
+      slotToParticipantId_.erase(slotIndex);
+      participantIdToSlot_.erase(slotIt);
+    }
+
+    // Remove nickname
+    participantNicks_.erase(pid);
   }
-  
+
   if (padsToTeardown.empty()) {
     g_print("  No tracked pads for participant %s\n", participant_id);
     return;
@@ -283,6 +307,26 @@ void ParticipantManager::handleParticipantLeft(const gchar* participant_id, cons
 
 void ParticipantManager::handleMuteStateChanged(const gchar* participant_id, gboolean is_audio, gboolean new_muted) {
   g_print("ParticipantManager::handleMuteStateChanged id=%s %s=%d\n", participant_id, is_audio ? "audio" : "video", new_muted);
+
+  std::lock_guard<std::mutex> lock(slotMutex_);
+  std::string pid(participant_id);
+  auto slotIt = participantIdToSlot_.find(pid);
+  if (slotIt != participantIdToSlot_.end()) {
+    int slotIndex = slotIt->second;
+    if (slotIndex >= 0 && slotIndex < static_cast<int>(participantInfoSlots_.size()) && participantInfoSlots_[slotIndex]) {
+      ParticipantInfo* info = participantInfoSlots_[slotIndex];
+      bool muted = new_muted != 0;
+      if (is_audio) {
+        QMetaObject::invokeMethod(info, [info, muted](){
+          info->setAudioMuted(muted);
+        }, Qt::QueuedConnection);
+      } else {
+        QMetaObject::invokeMethod(info, [info, muted](){
+          info->setVideoMuted(muted);
+        }, Qt::QueuedConnection);
+      }
+    }
+  }
 }
 
 void ParticipantManager::handlePadAdded(GstPad* pad) {
@@ -484,6 +528,31 @@ void ParticipantManager::handleVideoPadAdded(GstPad* pad, const std::string& pad
     if (!pid.empty()) {
       participantPads_[pid].push_back(pad);
       g_print("  Mapped pad to participant %s\n", pid.c_str());
+
+      // Track slot assignment for this participant
+      participantIdToSlot_[pid] = slot_index;
+      slotToParticipantId_[slot_index] = pid;
+
+      // Populate ParticipantInfo for this slot
+      if (slot_index >= 0 && slot_index < static_cast<int>(participantInfoSlots_.size()) && participantInfoSlots_[slot_index]) {
+        ParticipantInfo* info = participantInfoSlots_[slot_index];
+
+        // Look up participant nickname
+        std::string nick = pid;  // Default to participant ID
+        auto nickIt = participantNicks_.find(pid);
+        if (nickIt != participantNicks_.end()) {
+          nick = nickIt->second;
+        }
+
+        // Update ParticipantInfo on Qt thread
+        QMetaObject::invokeMethod(info, [info, pid, nick](){
+          info->setParticipantId(QString::fromStdString(pid));
+          info->setName(QString::fromStdString(nick));
+          info->setIsActive(true);
+        }, Qt::QueuedConnection);
+
+        g_print("  Set participant info for slot %d: %s\n", slot_index, nick.c_str());
+      }
     } else {
       g_print("  Could not parse participant ID from pad name %s\n", padName.c_str());
     }

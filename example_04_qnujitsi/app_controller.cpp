@@ -9,6 +9,7 @@
 #include "conference.h"
 #include "camera_manager.h"
 #include "audio_manager.h"
+#include "participant_info.h"
 
 AppController::AppController(QObject* parent)
   : QObject(parent) {
@@ -19,6 +20,16 @@ AppController::AppController(QObject* parent)
   // Initialize audio manager and enumerate audio devices
   audioManager_ = std::make_unique<AudioManager>(this);
   audioManager_->enumerateAudioDevices();
+
+  // Initialize participant info for each slot
+  slot0Info_ = std::make_unique<ParticipantInfo>(this);
+  slot1Info_ = std::make_unique<ParticipantInfo>(this);
+  slot2Info_ = std::make_unique<ParticipantInfo>(this);
+  slot3Info_ = std::make_unique<ParticipantInfo>(this);
+
+  // Slot 0 is always local preview
+  slot0Info_->setName("Local");
+  slot0Info_->setIsActive(true);
 
   // Ensure graceful teardown on app exit
   if (QCoreApplication::instance()) {
@@ -63,6 +74,9 @@ bool AppController::connectToConference(QQuickWindow* rootWindow,
     emit error(QStringLiteral("Failed to build conference"));
     return false;
   }
+
+  // Set participant info slots for UI updates
+  conference_->setParticipantInfoSlots(slot0Info_.get(), slot1Info_.get(), slot2Info_.get(), slot3Info_.get());
 
   // Get selected camera device
   const char* cameraDeviceIndex = nullptr;
@@ -110,15 +124,21 @@ bool AppController::isConnected() const {
 void AppController::teardown() {
   if (!conference_) return;
   GstElement* pipeline = conference_->pipeline();
-  
+
   // Reset conference first to destroy participants and send pipeline
   // while the pipeline object is still valid.
   conference_.reset();
-  
+
   if (pipeline) {
     gst_element_set_state(pipeline, GST_STATE_NULL);
     gst_object_unref(pipeline);
   }
+
+  // Reset all participant info (except slot0 which is always local)
+  slot1Info_->reset();
+  slot2Info_->reset();
+  slot3Info_->reset();
+
   emit connectedChanged();
   emit videoMutedChanged();
   emit audioMutedChanged();

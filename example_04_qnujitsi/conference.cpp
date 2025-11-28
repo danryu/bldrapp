@@ -8,6 +8,7 @@
 
 #include "send_pipeline.h"
 #include "participant_manager.h"
+#include "participant_info.h"
 
 class SetPlayingRenderJob : public QRunnable {
 public:
@@ -120,5 +121,11 @@ bool Conference::isVideoMuted() const {
 
 bool Conference::isAudioMuted() const {
   return send_ ? send_->isAudioMuted() : false;
+}
+
+void Conference::setParticipantInfoSlots(ParticipantInfo* slot0, ParticipantInfo* slot1, ParticipantInfo* slot2, ParticipantInfo* slot3) {
+  if (participants_) {
+    participants_->setParticipantInfoSlots(slot0, slot1, slot2, slot3);
+  }
 }
 

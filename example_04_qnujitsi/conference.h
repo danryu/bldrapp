@@ -7,6 +7,7 @@ class QQuickWindow;
 
 class SendPipeline;
 class ParticipantManager;
+class ParticipantInfo;
 
 class Conference {
 public:
@@ -40,6 +41,9 @@ public:
   bool setAudioMuted(bool muted);
   bool isVideoMuted() const;
   bool isAudioMuted() const;
+
+  // Set participant info objects for each slot (pass to ParticipantManager)
+  void setParticipantInfoSlots(ParticipantInfo* slot0, ParticipantInfo* slot1, ParticipantInfo* slot2, ParticipantInfo* slot3);
 
   // Accessors for cleanup
   GstElement* pipeline() const { return pipeline_; }
