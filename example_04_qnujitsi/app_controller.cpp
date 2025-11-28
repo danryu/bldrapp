@@ -139,6 +139,10 @@ void AppController::teardown() {
   slot2Info_->reset();
   slot3Info_->reset();
 
+  // Reset mute states for local participant
+  slot0Info_->setVideoMuted(false);
+  slot0Info_->setAudioMuted(false);
+
   emit connectedChanged();
   emit videoMutedChanged();
   emit audioMutedChanged();
@@ -154,12 +158,16 @@ bool AppController::isAudioMuted() const {
 
 void AppController::setVideoMuted(bool muted) {
   if (conference_ && conference_->setVideoMuted(muted)) {
+    // Update local participant info to reflect mute state
+    slot0Info_->setVideoMuted(muted);
     emit videoMutedChanged();
   }
 }
 
 void AppController::setAudioMuted(bool muted) {
   if (conference_ && conference_->setAudioMuted(muted)) {
+    // Update local participant info to reflect mute state
+    slot0Info_->setAudioMuted(muted);
     emit audioMutedChanged();
   }
 }

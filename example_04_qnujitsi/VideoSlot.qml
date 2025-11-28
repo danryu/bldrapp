@@ -12,39 +12,65 @@ Item {
     // Reference to ParticipantInfo object from C++
     property var participantInfo: null
 
-    // The actual video item
-    GstGLQt6VideoItem {
-        id: videoItem
-        anchors.fill: parent
-    }
-
-    // Overlay layer
+    // Container with border and rounded corners
     Rectangle {
-        id: overlay
+        id: borderContainer
         anchors.fill: parent
-        color: "transparent"
-        visible: participantInfo && participantInfo.isActive
+        color: "black"
+        border.color: "white"
+        border.width: 3
+        radius: 8
+        clip: true
 
-        // Top-left: Participant name
+        // The actual video item
+        GstGLQt6VideoItem {
+            id: videoItem
+            anchors.fill: parent
+            anchors.margins: 0
+        }
+
+        // Gray overlay when video is muted (frozen frame indicator)
         Rectangle {
-            anchors.left: parent.left
-            anchors.top: parent.top
-            anchors.margins: 8
-            width: nameLabel.width + 16
-            height: nameLabel.height + 8
-            color: "#CC000000"
-            radius: 4
-            visible: participantInfo && participantInfo.name !== ""
+            anchors.fill: parent
+            color: "#AA333333"
+            visible: participantInfo && participantInfo.videoMuted
+            radius: parent.radius
 
             Label {
-                id: nameLabel
                 anchors.centerIn: parent
-                text: participantInfo ? participantInfo.name : ""
-                color: "white"
-                font.pixelSize: 14
-                font.bold: true
+                text: "📷"
+                font.pixelSize: 48
+                opacity: 0.7
             }
         }
+
+        // Overlay layer for participant info
+        Rectangle {
+            id: overlay
+            anchors.fill: parent
+            color: "transparent"
+        visible: participantInfo && participantInfo.isActive
+
+            // Top-left: Participant name
+            Rectangle {
+                anchors.left: parent.left
+                anchors.top: parent.top
+                anchors.margins: 8
+                width: nameLabel.width + 16
+                height: nameLabel.height + 8
+                color: "#CC000000"
+                radius: 4
+                visible: participantInfo && participantInfo.name !== ""
+
+                Label {
+                    id: nameLabel
+                    anchors.centerIn: parent
+                    text: participantInfo ? participantInfo.name : ""
+                    color: "white"
+                    font.pixelSize: 14
+                    font.bold: true
+                }
+            }
 
         // Bottom-right: Status icons
         Row {
@@ -83,5 +109,6 @@ Item {
                 }
             }
         }
-    }
+        }  // End overlay
+    }  // End borderContainer
 }
