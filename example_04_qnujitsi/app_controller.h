@@ -14,6 +14,8 @@ class AppController : public QObject {
   Q_PROPERTY(bool connected READ isConnected NOTIFY connectedChanged)
   Q_PROPERTY(CameraManager* cameraManager READ cameraManager CONSTANT)
   Q_PROPERTY(AudioManager* audioManager READ audioManager CONSTANT)
+  Q_PROPERTY(bool videoMuted READ isVideoMuted WRITE setVideoMuted NOTIFY videoMutedChanged)
+  Q_PROPERTY(bool audioMuted READ isAudioMuted WRITE setAudioMuted NOTIFY audioMutedChanged)
 public:
   explicit AppController(QObject* parent = nullptr);
   ~AppController() override;
@@ -32,8 +34,16 @@ public:
   CameraManager* cameraManager() const { return cameraManager_.get(); }
   AudioManager* audioManager() const { return audioManager_.get(); }
 
+  // Mute controls
+  bool isVideoMuted() const;
+  bool isAudioMuted() const;
+  void setVideoMuted(bool muted);
+  void setAudioMuted(bool muted);
+
 signals:
   void connectedChanged();
+  void videoMutedChanged();
+  void audioMutedChanged();
   void error(const QString& message);
 
 private:

@@ -120,6 +120,27 @@ void AppController::teardown() {
     gst_object_unref(pipeline);
   }
   emit connectedChanged();
+  emit videoMutedChanged();
+  emit audioMutedChanged();
 }
 
+bool AppController::isVideoMuted() const {
+  return conference_ ? conference_->isVideoMuted() : false;
+}
+
+bool AppController::isAudioMuted() const {
+  return conference_ ? conference_->isAudioMuted() : false;
+}
+
+void AppController::setVideoMuted(bool muted) {
+  if (conference_ && conference_->setVideoMuted(muted)) {
+    emit videoMutedChanged();
+  }
+}
+
+void AppController::setAudioMuted(bool muted) {
+  if (conference_ && conference_->setAudioMuted(muted)) {
+    emit audioMutedChanged();
+  }
+}
 

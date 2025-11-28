@@ -310,6 +310,7 @@ meson setup builddir \
 	-Dgst-plugins-base:audioresample=enabled \
 	-Dgst-plugins-base:audioconvert=enabled \
 	-Dgst-plugins-base:audiotestsrc=enabled \
+	-Dgst-plugins-base:volume=enabled \
 	-Dgst-plugins-base:typefind=enabled \
 	-Dgst-plugins-base:rawparse=enabled \
 	-Dgst-plugins-base:opus=enabled \

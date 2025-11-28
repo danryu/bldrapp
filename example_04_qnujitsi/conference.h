@@ -35,6 +35,12 @@ public:
   // Schedule PLAYING on the Qt render thread
   void scheduleStart(QQuickWindow* window) const;
 
+  // Mute controls
+  bool setVideoMuted(bool muted);
+  bool setAudioMuted(bool muted);
+  bool isVideoMuted() const;
+  bool isAudioMuted() const;
+
   // Accessors for cleanup
   GstElement* pipeline() const { return pipeline_; }
 

@@ -21,6 +21,12 @@ public:
   // Sync all elements with parent pipeline state (for hot-swapping)
   bool syncStateWithParent();
 
+  // Mute controls
+  bool setVideoMuted(bool muted);
+  bool setAudioMuted(bool muted);
+  bool isVideoMuted() const { return videoMuted_; }
+  bool isAudioMuted() const { return audioMuted_; }
+
 private:
   bool createElements(bool withLocalPreview, bool useCamera);
   void configureElements(int videoWidth, int videoHeight, const char* cameraDeviceIndex, const char* audioDeviceIndex);
@@ -44,9 +50,12 @@ private:
   // Audio send
   GstElement* audiosrc_ {nullptr};       // osxaudiosrc for microphone capture
   GstElement* audioconvert_ {nullptr};   // Format conversion for encoder
+  GstElement* volume_ {nullptr};         // Volume control for audio muting
   GstElement* opusenc_ {nullptr};
 
   bool useCamera_ {false};
+  bool videoMuted_ {false};
+  bool audioMuted_ {false};
 };
 
 

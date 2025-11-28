@@ -28,6 +28,7 @@ SendPipeline::~SendPipeline() {
   // Remove audio elements
   setNullAndRemove(audiosrc_);
   setNullAndRemove(audioconvert_);
+  setNullAndRemove(volume_);
   setNullAndRemove(opusenc_);
 
   g_print("SendPipeline destroyed\n");
@@ -64,11 +65,12 @@ bool SendPipeline::createElements(bool withLocalPreview, bool useCamera) {
   video_queue_  = gst_element_factory_make("queue", nullptr);
   audiosrc_     = gst_element_factory_make("osxaudiosrc", nullptr);
   audioconvert_ = gst_element_factory_make("audioconvert", nullptr);
+  volume_       = gst_element_factory_make("volume", nullptr);
   opusenc_      = gst_element_factory_make("opusenc", nullptr);
 
   if (!pipeline_ || !jitsibin_ ||
       !videosrc_ || !videoscale_ || !vtenc_ || !h264parse_ || !video_queue_ ||
-      !audiosrc_ || !audioconvert_ || !opusenc_) {
+      !audiosrc_ || !audioconvert_ || !volume_ || !opusenc_) {
     g_printerr("Failed to create one or more send elements.\n");
     return false;
   }
@@ -162,14 +164,14 @@ bool SendPipeline::addToBinAndLink(int videoWidth, int videoHeight, GstElement* 
                        videosrc_, videoconvert_, videorate_, videoscale_, tee_, local_queue_,
                        vtenc_, h264parse_, video_queue_,
                        // audio path
-                       audiosrc_, audioconvert_, opusenc_,
+                       audiosrc_, audioconvert_, volume_, opusenc_,
                        NULL);
     } else {
       gst_bin_add_many(GST_BIN(pipeline_),
                        // video path
                        videosrc_, videoscale_, tee_, local_queue_, vtenc_, h264parse_, video_queue_,
                        // audio path
-                       audiosrc_, audioconvert_, opusenc_,
+                       audiosrc_, audioconvert_, volume_, opusenc_,
                        NULL);
     }
   } else {
@@ -179,14 +181,14 @@ bool SendPipeline::addToBinAndLink(int videoWidth, int videoHeight, GstElement* 
                        // video path
                        videosrc_, videoconvert_, videorate_, videoscale_, vtenc_, h264parse_, video_queue_,
                        // audio path
-                       audiosrc_, audioconvert_, opusenc_,
+                       audiosrc_, audioconvert_, volume_, opusenc_,
                        NULL);
     } else {
       gst_bin_add_many(GST_BIN(pipeline_),
                        // video path
                        videosrc_, videoscale_, vtenc_, h264parse_, video_queue_,
                        // audio path
-                       audiosrc_, audioconvert_, opusenc_,
+                       audiosrc_, audioconvert_, volume_, opusenc_,
                        NULL);
     }
   }
@@ -356,9 +358,9 @@ bool SendPipeline::addToBinAndLink(int videoWidth, int videoHeight, GstElement* 
     return false;
   }
 
-  // Audio path: osxaudiosrc -> audioconvert -> opusenc -> jitsibin
-  if (!gst_element_link_many(audiosrc_, audioconvert_, opusenc_, NULL)) {
-    g_printerr("Failed to link osxaudiosrc -> audioconvert -> opusenc\n");
+  // Audio path: osxaudiosrc -> audioconvert -> volume -> opusenc -> jitsibin
+  if (!gst_element_link_many(audiosrc_, audioconvert_, volume_, opusenc_, NULL)) {
+    g_printerr("Failed to link osxaudiosrc -> audioconvert -> volume -> opusenc\n");
     return false;
   }
   if (!gst_element_link_pads(opusenc_, NULL, jitsibin_, "audio_sink")) {
@@ -366,7 +368,7 @@ bool SendPipeline::addToBinAndLink(int videoWidth, int videoHeight, GstElement* 
     return false;
   }
   g_print("=== Audio send pipeline ===\n");
-  g_print("osxaudiosrc (microphone) -> audioconvert -> opusenc -> jitsibin:audio_sink\n");
+  g_print("osxaudiosrc (microphone) -> audioconvert -> volume -> opusenc -> jitsibin:audio_sink\n");
 
   return true;
 }
@@ -400,10 +402,35 @@ bool SendPipeline::syncStateWithParent() {
   // Sync audio elements
   if (!syncElement(audiosrc_)) return false;
   if (!syncElement(audioconvert_)) return false;
+  if (!syncElement(volume_)) return false;
   if (!syncElement(opusenc_)) return false;
 
   g_print("All send pipeline elements synced with parent state\n");
   return true;
 }
 
+bool SendPipeline::setVideoMuted(bool muted) {
+  if (!videosrc_ || videoMuted_ == muted) return true;
 
+  if (muted) {
+    // Lock state so parent changes don't affect it, then stop camera
+    gst_element_set_locked_state(videosrc_, TRUE);
+    gst_element_set_state(videosrc_, GST_STATE_NULL);
+    g_print("Camera muted (stopped)\n");
+  } else {
+    // Restore to pipeline state
+    gst_element_set_locked_state(videosrc_, FALSE);
+    gst_element_sync_state_with_parent(videosrc_);
+    g_print("Camera unmuted\n");
+  }
+  videoMuted_ = muted;
+  return true;
+}
+
+bool SendPipeline::setAudioMuted(bool muted) {
+  if (!volume_) return false;
+  g_object_set(G_OBJECT(volume_), "mute", muted ? TRUE : FALSE, NULL);
+  audioMuted_ = muted;
+  g_print("Microphone %s\n", muted ? "muted" : "unmuted");
+  return true;
+}
