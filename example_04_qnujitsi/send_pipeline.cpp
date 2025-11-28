@@ -424,6 +424,11 @@ bool SendPipeline::setVideoMuted(bool muted) {
     g_print("Camera unmuted\n");
   }
   videoMuted_ = muted;
+
+  // Signal mute state to jitsibin (which sends presence update to server)
+  if (jitsibin_) {
+    g_object_set(G_OBJECT(jitsibin_), "video-muted", muted ? TRUE : FALSE, NULL);
+  }
   return true;
 }
 
@@ -432,5 +437,10 @@ bool SendPipeline::setAudioMuted(bool muted) {
   g_object_set(G_OBJECT(volume_), "mute", muted ? TRUE : FALSE, NULL);
   audioMuted_ = muted;
   g_print("Microphone %s\n", muted ? "muted" : "unmuted");
+
+  // Signal mute state to jitsibin (which sends presence update to server)
+  if (jitsibin_) {
+    g_object_set(G_OBJECT(jitsibin_), "audio-muted", muted ? TRUE : FALSE, NULL);
+  }
   return true;
 }
