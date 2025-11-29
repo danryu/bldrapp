@@ -7,6 +7,7 @@
 #include <map>
 #include <string>
 #include <mutex>
+#include <atomic>
 
 class QQuickWindow;
 class QQuickItem;
@@ -32,6 +33,10 @@ public:
 
   // Set participant info objects for updating UI (pass array of 4 ParticipantInfo pointers)
   void setParticipantInfoSlots(ParticipantInfo* slot0, ParticipantInfo* slot1, ParticipantInfo* slot2, ParticipantInfo* slot3);
+
+  // Disconnect all jitsibin signals and mark as shutting down
+  // Must be called before setting pipeline to NULL to prevent use-after-free
+  void disconnectSignals();
 
 private:
   // Static thunks for GObject signals
@@ -72,6 +77,9 @@ private:
 
   // Guards access to slot vectors and inUse_ during pad-added handling
   std::mutex slotMutex_;
+  
+  // Shutdown flag - checked by signal handlers to avoid use-after-free
+  std::atomic<bool> shuttingDown_{false};
 
   struct ReceiveSession {
     int slotIndex;

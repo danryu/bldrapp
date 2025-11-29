@@ -32,6 +32,12 @@ Conference::~Conference() {
   // pipeline cleanup is done by caller to preserve current lifecycle
 }
 
+void Conference::disconnectSignals() {
+  if (participants_) {
+    participants_->disconnectSignals();
+  }
+}
+
 bool Conference::build(const char* host,
                        const char* room,
                        int videoWidth,

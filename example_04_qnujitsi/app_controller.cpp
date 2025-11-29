@@ -125,12 +125,23 @@ void AppController::teardown() {
   if (!conference_) return;
   GstElement* pipeline = conference_->pipeline();
 
-  // Reset conference first to destroy participants and send pipeline
-  // while the pipeline object is still valid.
-  conference_.reset();
+  // CRITICAL ORDERING for safe teardown:
+  // 1. Disconnect signals first - prevents new callbacks from jitsibin
+  conference_->disconnectSignals();
 
+  // 2. Set pipeline to NULL - this stops jitsibin's internal tasks and
+  //    waits for the runner thread to finish. After this returns,
+  //    no more signals will be emitted.
   if (pipeline) {
     gst_element_set_state(pipeline, GST_STATE_NULL);
+  }
+
+  // 3. Now safe to destroy Conference (ParticipantManager, SendPipeline)
+  //    since no callbacks are possible
+  conference_.reset();
+
+  // 4. Finally unref the pipeline after Conference is gone
+  if (pipeline) {
     gst_object_unref(pipeline);
   }
 

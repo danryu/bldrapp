@@ -45,6 +45,9 @@ public:
   // Set participant info objects for each slot (pass to ParticipantManager)
   void setParticipantInfoSlots(ParticipantInfo* slot0, ParticipantInfo* slot1, ParticipantInfo* slot2, ParticipantInfo* slot3);
 
+  // Disconnect all signals before pipeline teardown to prevent use-after-free
+  void disconnectSignals();
+
   // Accessors for cleanup
   GstElement* pipeline() const { return pipeline_; }
 

@@ -24,6 +24,16 @@ void ParticipantManager::connectSignals() {
   g_signal_connect(jitsibin_, "finished", GCallback(&ParticipantManager::onFinished), this);
 }
 
+void ParticipantManager::disconnectSignals() {
+  // Set shutdown flag first - signal handlers will check this and return early
+  shuttingDown_.store(true, std::memory_order_release);
+
+  // Disconnect all signals from jitsibin to prevent further callbacks
+  if (jitsibin_) {
+    g_signal_handlers_disconnect_by_data(jitsibin_, this);
+  }
+}
+
 bool ParticipantManager::initializeSlots(QQuickWindow* rootWindow) {
   // Create per-slot receive chains for each predeclared QML item: videoItem0, videoItem1, ...
   for (int i = 0; ; ++i) {
@@ -111,31 +121,31 @@ void ParticipantManager::setParticipantInfoSlots(ParticipantInfo* slot0, Partici
 
 void ParticipantManager::onPadAdded(GstElement* /*jitsibin*/, GstPad* pad, gpointer user_data) {
   auto* self = static_cast<ParticipantManager*>(user_data);
-  if (!self) return;
+  if (!self || self->shuttingDown_.load(std::memory_order_acquire)) return;
   self->handlePadAdded(pad);
 }
 
 void ParticipantManager::onParticipantJoined(GstElement* /*jitsibin*/, const gchar* participant_id, const gchar* nick, gpointer user_data) {
   auto* self = static_cast<ParticipantManager*>(user_data);
-  if (!self) return;
+  if (!self || self->shuttingDown_.load(std::memory_order_acquire)) return;
   self->handleParticipantJoined(participant_id, nick);
 }
 
 void ParticipantManager::onParticipantLeft(GstElement* /*jitsibin*/, const gchar* participant_id, const gchar* nick, gpointer user_data) {
   auto* self = static_cast<ParticipantManager*>(user_data);
-  if (!self) return;
+  if (!self || self->shuttingDown_.load(std::memory_order_acquire)) return;
   self->handleParticipantLeft(participant_id, nick);
 }
 
 void ParticipantManager::onMuteStateChanged(GstElement* /*jitsibin*/, const gchar* participant_id, gboolean is_audio, gboolean new_muted, gpointer user_data) {
   auto* self = static_cast<ParticipantManager*>(user_data);
-  if (!self) return;
+  if (!self || self->shuttingDown_.load(std::memory_order_acquire)) return;
   self->handleMuteStateChanged(participant_id, is_audio, new_muted);
 }
 
 void ParticipantManager::onFinished(GstElement* /*jitsibin*/, gboolean success, gpointer user_data) {
   auto* self = static_cast<ParticipantManager*>(user_data);
-  if (!self) return;
+  if (!self || self->shuttingDown_.load(std::memory_order_acquire)) return;
   self->handleFinished(success);
 }
 
