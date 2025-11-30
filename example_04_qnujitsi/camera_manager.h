@@ -5,13 +5,46 @@
 #include <QStringList>
 #include <vector>
 #include <string>
+#include <gst/gst.h>
+
+// Forward declare GstDevice
+typedef struct _GstDevice GstDevice;
 
 struct CameraDevice {
-    std::string deviceName;    // GStreamer device name (e.g., "0" or device path)
+    GstDevice* device;         // GstDevice object (ref-counted, can be nullptr for fallback)
     std::string displayName;   // Human-readable name
 
-    CameraDevice(const std::string& devName, const std::string& dispName)
-        : deviceName(devName), displayName(dispName) {}
+    CameraDevice(GstDevice* dev, const std::string& dispName)
+        : device(dev), displayName(dispName) {
+        // Ref the device if provided
+        if (device) {
+            gst_object_ref(device);
+        }
+    }
+
+    ~CameraDevice() {
+        // Unref the device when destroyed
+        if (device) {
+            gst_object_unref(device);
+        }
+    }
+
+    // Disable copy, enable move
+    CameraDevice(const CameraDevice&) = delete;
+    CameraDevice& operator=(const CameraDevice&) = delete;
+    CameraDevice(CameraDevice&& other) noexcept
+        : device(other.device), displayName(std::move(other.displayName)) {
+        other.device = nullptr;  // Transfer ownership
+    }
+    CameraDevice& operator=(CameraDevice&& other) noexcept {
+        if (this != &other) {
+            if (device) gst_object_unref(device);
+            device = other.device;
+            displayName = std::move(other.displayName);
+            other.device = nullptr;
+        }
+        return *this;
+    }
 };
 
 class CameraManager : public QObject {

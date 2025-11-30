@@ -78,14 +78,35 @@ bool AppController::connectToConference(QQuickWindow* rootWindow,
   // Set participant info slots for UI updates
   conference_->setParticipantInfoSlots(slot0Info_.get(), slot1Info_.get(), slot2Info_.get(), slot3Info_.get());
 
-  // Get selected camera device
-  const char* cameraDeviceIndex = nullptr;
+  // Re-enumerate cameras to get fresh GstDevice objects
+  // This is necessary on macOS where AVFoundation device handles become stale after use
+  QString selectedCameraName;
+  if (cameraManager_) {
+    const CameraDevice* currentSelection = cameraManager_->selectedCamera();
+    if (currentSelection) {
+      selectedCameraName = QString::fromStdString(currentSelection->displayName);
+    }
+
+    cameraManager_->enumerateCameras();
+
+    // Re-select the same camera by name (device-index values are volatile)
+    if (!selectedCameraName.isEmpty()) {
+      for (int i = 0; i < cameraManager_->cameraNames().size(); ++i) {
+        if (cameraManager_->cameraNames()[i] == selectedCameraName) {
+          cameraManager_->setCurrentCameraIndex(i);
+          break;
+        }
+      }
+    }
+  }
+
+  // Get selected camera device (now fresh)
+  GstDevice* cameraDevice = nullptr;
   if (cameraManager_) {
     const CameraDevice* selectedCamera = cameraManager_->selectedCamera();
     if (selectedCamera) {
-      cameraDeviceIndex = selectedCamera->deviceName.c_str();
-      qDebug() << "Using camera:" << QString::fromStdString(selectedCamera->displayName)
-               << "with device index:" << cameraDeviceIndex;
+      cameraDevice = selectedCamera->device;
+      qDebug() << "Using camera:" << QString::fromStdString(selectedCamera->displayName);
     }
   }
 
@@ -100,7 +121,7 @@ bool AppController::connectToConference(QQuickWindow* rootWindow,
     }
   }
 
-  if (!conference_->initQmlSlotsAndSend(rootWindow, videoWidth, videoHeight, cameraDeviceIndex, audioDeviceIndex)) {
+  if (!conference_->initQmlSlotsAndSend(rootWindow, videoWidth, videoHeight, cameraDevice, audioDeviceIndex)) {
     conference_.reset();
     emit error(QStringLiteral("Failed to initialize QML slots and send pipeline"));
     return false;

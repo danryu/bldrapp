@@ -2,6 +2,7 @@
 
 #include <gst/gst.h>
 #include <QDebug>
+#include <algorithm>
 
 CameraManager::CameraManager(QObject* parent)
     : QObject(parent) {
@@ -14,7 +15,7 @@ bool CameraManager::enumerateCameras() {
     GstDeviceMonitor* monitor = gst_device_monitor_new();
     if (!monitor) {
         qWarning() << "Failed to create device monitor";
-        cameras_.emplace_back("0", "Default Camera");
+        cameras_.emplace_back(nullptr, "Default Camera");
         currentCameraIndex_ = 0;
         emit currentCameraIndexChanged();
         emit camerasChanged();
@@ -30,7 +31,7 @@ bool CameraManager::enumerateCameras() {
     if (!gst_device_monitor_start(monitor)) {
         qWarning() << "Failed to start device monitor";
         gst_object_unref(monitor);
-        cameras_.emplace_back("0", "Default Camera");
+        cameras_.emplace_back(nullptr, "Default Camera");
         currentCameraIndex_ = 0;
         emit currentCameraIndexChanged();
         emit camerasChanged();
@@ -39,7 +40,6 @@ bool CameraManager::enumerateCameras() {
 
     // Get devices
     GList* devices = gst_device_monitor_get_devices(monitor);
-    int deviceIndex = 0;
 
     for (GList* l = devices; l != nullptr; l = l->next) {
         GstDevice* device = GST_DEVICE(l->data);
@@ -52,16 +52,17 @@ bool CameraManager::enumerateCameras() {
                 GST_PLUGIN_FEATURE(gst_element_get_factory(element)));
 
             if (g_strcmp0(factoryName, "avfvideosrc") == 0) {
-                std::string displayName = name ? std::string(name) : ("Camera " + std::to_string(deviceIndex));
-                cameras_.emplace_back(std::to_string(deviceIndex), displayName);
-                qDebug() << "Found camera" << deviceIndex << ":" << QString::fromStdString(displayName);
-                deviceIndex++;
+                std::string displayName = name ? std::string(name) : "Unknown Camera";
+                // Store the GstDevice directly - CameraDevice will ref it
+                cameras_.emplace_back(device, displayName);
+                qDebug() << "Found camera:" << QString::fromStdString(displayName);
             }
 
             gst_object_unref(element);
         }
 
         if (name) g_free(name);
+        // Unref the device from the list - CameraDevice already took its own ref
         gst_object_unref(device);
     }
 
@@ -69,47 +70,16 @@ bool CameraManager::enumerateCameras() {
     gst_device_monitor_stop(monitor);
     gst_object_unref(monitor);
 
-    // If no cameras found via device monitor, fall back to simple enumeration
+    // If no cameras found, add default fallback (nullptr device)
     if (cameras_.empty()) {
-        qWarning() << "No cameras found via device monitor, trying fallback enumeration";
-
-        // Try device indices 0-2 as fallback
-        for (int i = 0; i < 3; ++i) {
-            GstElement* testSrc = gst_element_factory_make("avfvideosrc", nullptr);
-            if (!testSrc) break;
-
-            g_object_set(G_OBJECT(testSrc), "device-index", i, NULL);
-            GstStateChangeReturn ret = gst_element_set_state(testSrc, GST_STATE_READY);
-
-            if (ret != GST_STATE_CHANGE_FAILURE) {
-                gchar* deviceName = nullptr;
-                g_object_get(G_OBJECT(testSrc), "device-name", &deviceName, NULL);
-
-                std::string displayName;
-                if (deviceName && strlen(deviceName) > 0) {
-                    displayName = std::string(deviceName);
-                    g_free(deviceName);
-                } else {
-                    displayName = "Camera " + std::to_string(i);
-                }
-
-                cameras_.emplace_back(std::to_string(i), displayName);
-                qDebug() << "Found camera (fallback)" << i << ":" << QString::fromStdString(displayName);
-            }
-
-            gst_element_set_state(testSrc, GST_STATE_NULL);
-            gst_object_unref(testSrc);
-
-            if (i == 0 && ret == GST_STATE_CHANGE_FAILURE) break;
-            if (ret == GST_STATE_CHANGE_FAILURE) break;
-        }
+        qWarning() << "No cameras found, adding default camera fallback";
+        cameras_.emplace_back(nullptr, "Default Camera");
     }
 
-    // Final fallback: add default camera
-    if (cameras_.empty()) {
-        qWarning() << "No cameras found, adding default camera 0";
-        cameras_.emplace_back("0", "Default Camera");
-    }
+    // Sort cameras by display name to ensure stable order across enumerations
+    std::sort(cameras_.begin(), cameras_.end(), [](const CameraDevice& a, const CameraDevice& b) {
+        return a.displayName < b.displayName;
+    });
 
     // Select first camera by default
     if (!cameras_.empty() && currentCameraIndex_ < 0) {

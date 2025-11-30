@@ -72,7 +72,7 @@ bool Conference::build(const char* host,
 }
 
 bool Conference::initQmlSlotsAndSend(QQuickWindow* rootWindow, int videoWidth, int videoHeight,
-                                     const char* cameraDeviceIndex, const char* audioDeviceIndex) {
+                                     GstDevice* cameraDevice, const char* audioDeviceIndex) {
   if (!participants_) return false;
 
   // Initialize QML slots first
@@ -92,7 +92,7 @@ bool Conference::initQmlSlotsAndSend(QQuickWindow* rootWindow, int videoWidth, i
 
   // Build send pipeline with local preview to slot 0
   send_ = new SendPipeline(pipeline_, jitsibin_);
-  if (!send_->buildAndLink(videoWidth, videoHeight, localSlotVideoconvert, cameraDeviceIndex, audioDeviceIndex)) {
+  if (!send_->buildAndLink(videoWidth, videoHeight, localSlotVideoconvert, cameraDevice, audioDeviceIndex)) {
     g_printerr("Failed to build send pipeline with local preview\n");
     return false;
   }
@@ -134,4 +134,5 @@ void Conference::setParticipantInfoSlots(ParticipantInfo* slot0, ParticipantInfo
     participants_->setParticipantInfoSlots(slot0, slot1, slot2, slot3);
   }
 }
+
 

@@ -10,13 +10,12 @@ public:
 
   // Build, configure and link the send chain.
   // localSlotVideoconvert: if non-null, tee raw video to this element for local preview
-  // cameraDeviceIndex: camera device index for avfvideosrc (e.g., "0", "1", etc.)
-  //                    if empty or nullptr, uses videotestsrc
+  // cameraDevice: GstDevice for camera, if nullptr uses videotestsrc
   // audioDeviceIndex: audio device index for osxaudiosrc (e.g., "0", "1", etc.)
   //                   if empty or nullptr, uses default audio device
   // Returns false on failure.
   bool buildAndLink(int videoWidth, int videoHeight, GstElement* localSlotVideoconvert = nullptr,
-                    const char* cameraDeviceIndex = nullptr, const char* audioDeviceIndex = nullptr);
+                    GstDevice* cameraDevice = nullptr, const char* audioDeviceIndex = nullptr);
 
   // Sync all elements with parent pipeline state (for hot-swapping)
   bool syncStateWithParent();
@@ -28,8 +27,8 @@ public:
   bool isAudioMuted() const { return audioMuted_; }
 
 private:
-  bool createElements(bool withLocalPreview, bool useCamera);
-  void configureElements(int videoWidth, int videoHeight, const char* cameraDeviceIndex, const char* audioDeviceIndex);
+  bool createElements(bool withLocalPreview, GstDevice* cameraDevice);
+  void configureElements(int videoWidth, int videoHeight, const char* audioDeviceIndex);
   bool addToBinAndLink(int videoWidth, int videoHeight, GstElement* localSlotVideoconvert);
 
 private:

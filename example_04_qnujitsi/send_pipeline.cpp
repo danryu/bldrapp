@@ -35,17 +35,22 @@ SendPipeline::~SendPipeline() {
 }
 
 bool SendPipeline::buildAndLink(int videoWidth, int videoHeight, GstElement* localSlotVideoconvert,
-                                 const char* cameraDeviceIndex, const char* audioDeviceIndex) {
-  useCamera_ = (cameraDeviceIndex != nullptr && strlen(cameraDeviceIndex) > 0);
-  if (!createElements(localSlotVideoconvert != nullptr, useCamera_)) return false;
-  configureElements(videoWidth, videoHeight, cameraDeviceIndex, audioDeviceIndex);
+                                 GstDevice* cameraDevice, const char* audioDeviceIndex) {
+  useCamera_ = (cameraDevice != nullptr);
+  if (!createElements(localSlotVideoconvert != nullptr, cameraDevice)) return false;
+  configureElements(videoWidth, videoHeight, audioDeviceIndex);
   return addToBinAndLink(videoWidth, videoHeight, localSlotVideoconvert);
 }
 
-bool SendPipeline::createElements(bool withLocalPreview, bool useCamera) {
-  // Create video source - either camera or test source
-  if (useCamera) {
-    videosrc_ = gst_element_factory_make("avfvideosrc", nullptr);
+bool SendPipeline::createElements(bool withLocalPreview, GstDevice* cameraDevice) {
+  // Create video source - either from GstDevice or test source
+  if (cameraDevice) {
+    // Create avfvideosrc from GstDevice (bypasses unstable device-index)
+    videosrc_ = gst_device_create_element(cameraDevice, nullptr);
+    if (!videosrc_) {
+      g_printerr("Failed to create element from camera device\n");
+      return false;
+    }
     videoconvert_ = gst_element_factory_make("videoconvert", nullptr);
     videorate_ = gst_element_factory_make("videorate", nullptr);
   } else {
@@ -76,7 +81,7 @@ bool SendPipeline::createElements(bool withLocalPreview, bool useCamera) {
   }
 
   // Check camera-specific elements
-  if (useCamera && (!videoconvert_ || !videorate_)) {
+  if (cameraDevice && (!videoconvert_ || !videorate_)) {
     g_printerr("Failed to create videoconvert or videorate for camera source.\n");
     return false;
   }
@@ -90,7 +95,7 @@ bool SendPipeline::createElements(bool withLocalPreview, bool useCamera) {
   return true;
 }
 
-void SendPipeline::configureElements(int /*videoWidth*/, int /*videoHeight*/, const char* cameraDeviceIndex,
+void SendPipeline::configureElements(int /*videoWidth*/, int /*videoHeight*/,
                                       const char* audioDeviceIndex) {
   // Configure encoder queue for low-latency (leaky downstream to prevent buffering)
   g_object_set(G_OBJECT(video_queue_),
@@ -131,12 +136,8 @@ void SendPipeline::configureElements(int /*videoWidth*/, int /*videoHeight*/, co
 
   // Configure video source
   if (useCamera_) {
-    // Camera source configuration
-    int deviceIndex = atoi(cameraDeviceIndex);
-    g_object_set(G_OBJECT(videosrc_),
-                 "device-index", deviceIndex,
-                 NULL);
-    g_print("Configured camera source with device-index=%d\n", deviceIndex);
+    // Camera created from GstDevice is already configured with correct device
+    // (no configuration needed - GstDevice handles device selection)
   } else {
     // Test source configuration
     g_object_set(G_OBJECT(videosrc_), "is-live", TRUE, NULL);
