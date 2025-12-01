@@ -33,6 +33,12 @@ ApplicationWindow {
                 }
                 Layout.preferredWidth: 140
             }
+            Button {
+                id: muteVideoButton
+                text: AppController.videoMuted ? "📷 Off" : "📷 On"
+                enabled: AppController.connected
+                onClicked: AppController.videoMuted = !AppController.videoMuted
+            }
             Label { text: "Mic:"; color: "white" }
             ComboBox {
                 id: audioCombo
@@ -46,13 +52,19 @@ ApplicationWindow {
                 }
                 Layout.preferredWidth: 140
             }
+            Button {
+                id: muteAudioButton
+                text: AppController.audioMuted ? "🎤 Off" : "🎤 On"
+                enabled: AppController.connected
+                onClicked: AppController.audioMuted = !AppController.audioMuted
+            }
             Label { text: "Host:"; color: "white" }
-            TextField { id: hostField; placeholderText: "meet.jit.si"; text: "chht6m4h.ki.kormix.io"; selectByMouse: true; Layout.preferredWidth: 160 }
+            TextField { id: hostField; placeholderText: "meet.jit.si"; text: "gn0tb7s7.ki.kormix.io"; selectByMouse: true; Layout.preferredWidth: 160 }
             Label { text: "Room:"; color: "white" }
-            TextField { id: roomField; placeholderText: "myroom"; text: "video"; selectByMouse: true; Layout.preferredWidth: 100 }
+            TextField { id: roomField; placeholderText: "myroom"; text: "video"; selectByMouse: true; Layout.preferredWidth: 60 }
             Label { text: "WxH:"; color: "white" }
-            TextField { id: widthField; placeholderText: "1280"; text: "1280"; inputMethodHints: Qt.ImhDigitsOnly; Layout.preferredWidth: 60 }
-            TextField { id: heightField; placeholderText: "720"; text: "720"; inputMethodHints: Qt.ImhDigitsOnly; Layout.preferredWidth: 50 }
+            // TextField { id: widthField; placeholderText: "1280"; text: "1280"; inputMethodHints: Qt.ImhDigitsOnly; Layout.preferredWidth: 60 }
+            // TextField { id: heightField; placeholderText: "720"; text: "720"; inputMethodHints: Qt.ImhDigitsOnly; Layout.preferredWidth: 50 }
             Button {
                 id: connectButton
                 text: "Connect"
@@ -70,18 +82,6 @@ ApplicationWindow {
                 onClicked: {
                     AppController.disconnectConference()
                 }
-            }
-            Button {
-                id: muteVideoButton
-                text: AppController.videoMuted ? "📷 Off" : "📷 On"
-                enabled: AppController.connected
-                onClicked: AppController.videoMuted = !AppController.videoMuted
-            }
-            Button {
-                id: muteAudioButton
-                text: AppController.audioMuted ? "🎤 Off" : "🎤 On"
-                enabled: AppController.connected
-                onClicked: AppController.audioMuted = !AppController.audioMuted
             }
         }
     }
