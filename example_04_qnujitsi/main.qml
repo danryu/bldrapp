@@ -59,7 +59,7 @@ ApplicationWindow {
                 onClicked: AppController.audioMuted = !AppController.audioMuted
             }
             Label { text: "Host:"; color: "white" }
-            TextField { id: hostField; placeholderText: "meet.jit.si"; text: "gn0tb7s7.ki.kormix.io"; selectByMouse: true; Layout.preferredWidth: 160 }
+            TextField { id: hostField; placeholderText: "meet.jit.si"; text: "0yg8c4go.ki.kormix.io"; selectByMouse: true; Layout.preferredWidth: 160 }
             Label { text: "Room:"; color: "white" }
             TextField { id: roomField; placeholderText: "myroom"; text: "video"; selectByMouse: true; Layout.preferredWidth: 60 }
             Label { text: "WxH:"; color: "white" }
@@ -70,9 +70,7 @@ ApplicationWindow {
                 text: "Connect"
                 enabled: !AppController.connected
                 onClicked: {
-                    const w = parseInt(widthField.text) || 1280
-                    const h = parseInt(heightField.text) || 720
-                    AppController.connectToConference(window, hostField.text, roomField.text, w, h, 4, 720)
+                    AppController.connectToConference(window, hostField.text, roomField.text, 1280, 720, 4, 720)
                 }
             }
             Button {

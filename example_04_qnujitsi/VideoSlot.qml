@@ -77,35 +77,37 @@ Item {
             anchors.right: parent.right
             anchors.bottom: parent.bottom
             anchors.margins: 8
-            spacing: 4
+            spacing: 6
 
             Rectangle {
-                width: 32
-                height: 32
-                color: "#CC000000"
-                radius: 16
+                width: 50
+                height: 50
+                color: "#E0CC0000"
+                radius: 25
+                border.color: "#FFAA0000"
+                border.width: 2
                 visible: participantInfo && participantInfo.audioMuted
 
                 Label {
                     anchors.centerIn: parent
-                    text: "🎤"
-                    font.pixelSize: 16
-                    opacity: 0.5  // Dimmed when muted
+                    text: "🔇"
+                    font.pixelSize: 28
                 }
             }
 
             Rectangle {
-                width: 32
-                height: 32
-                color: "#CC000000"
-                radius: 16
+                width: 50
+                height: 50
+                color: "#E0CC0000"
+                radius: 25
+                border.color: "#FFAA0000"
+                border.width: 2
                 visible: participantInfo && participantInfo.videoMuted
 
                 Label {
                     anchors.centerIn: parent
                     text: "📷"
-                    font.pixelSize: 16
-                    opacity: 0.5  // Dimmed when muted
+                    font.pixelSize: 28
                 }
             }
         }
