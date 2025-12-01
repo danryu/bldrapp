@@ -21,7 +21,7 @@ public:
   bool syncStateWithParent();
 
   // Mute controls
-  bool setVideoMuted(bool muted);
+  bool setVideoMuted(bool muted, GstDevice* newDevice = nullptr);
   bool setAudioMuted(bool muted);
   bool isVideoMuted() const { return videoMuted_; }
   bool isAudioMuted() const { return audioMuted_; }

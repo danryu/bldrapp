@@ -189,10 +189,47 @@ bool AppController::isAudioMuted() const {
 }
 
 void AppController::setVideoMuted(bool muted) {
-  if (conference_ && conference_->setVideoMuted(muted)) {
-    // Update local participant info to reflect mute state
-    slot0Info_->setVideoMuted(muted);
-    emit videoMutedChanged();
+  if (muted) {
+    // Muting: simple state change (to NULL)
+    if (conference_ && conference_->setVideoMuted(true)) {
+      slot0Info_->setVideoMuted(true);
+      emit videoMutedChanged();
+    }
+  } else {
+    // Unmuting: requires fresh GstDevice on macOS
+    GstDevice* freshDevice = nullptr;
+    
+    if (cameraManager_) {
+      // 1. Get current selection name
+      QString selectedCameraName;
+      const CameraDevice* currentSelection = cameraManager_->selectedCamera();
+      if (currentSelection) {
+        selectedCameraName = QString::fromStdString(currentSelection->displayName);
+      }
+      
+      // 2. Re-enumerate to get fresh handles (fixes stale handle issue)
+      cameraManager_->enumerateCameras();
+      
+      // 3. Find the camera again by name and get fresh device
+      if (!selectedCameraName.isEmpty()) {
+        for (int i = 0; i < cameraManager_->cameraNames().size(); ++i) {
+          if (cameraManager_->cameraNames()[i] == selectedCameraName) {
+            cameraManager_->setCurrentCameraIndex(i);
+            const CameraDevice* newSelection = cameraManager_->selectedCamera();
+            if (newSelection) {
+              freshDevice = newSelection->device;
+            }
+            break;
+          }
+        }
+      }
+    }
+    
+    // 4. Unmute with fresh device
+    if (conference_ && conference_->setVideoMuted(false, freshDevice)) {
+      slot0Info_->setVideoMuted(false);
+      emit videoMutedChanged();
+    }
   }
 }
 

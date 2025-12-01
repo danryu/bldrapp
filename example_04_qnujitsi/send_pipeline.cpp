@@ -410,7 +410,7 @@ bool SendPipeline::syncStateWithParent() {
   return true;
 }
 
-bool SendPipeline::setVideoMuted(bool muted) {
+bool SendPipeline::setVideoMuted(bool muted, GstDevice* newDevice) {
   if (!videosrc_ || videoMuted_ == muted) return true;
 
   if (muted) {
@@ -419,10 +419,42 @@ bool SendPipeline::setVideoMuted(bool muted) {
     gst_element_set_state(videosrc_, GST_STATE_NULL);
     g_print("Camera muted (stopped)\n");
   } else {
-    // Restore to pipeline state
-    gst_element_set_locked_state(videosrc_, FALSE);
-    gst_element_sync_state_with_parent(videosrc_);
-    g_print("Camera unmuted\n");
+    // Unmuting
+    if (useCamera_ && newDevice) {
+      // Replace the video source with a fresh one to fix stale handle issues on macOS
+      g_print("Replacing camera source with fresh device on unmute...\n");
+
+      // 1. Remove old source (it is already in NULL state from mute)
+      gst_element_set_locked_state(videosrc_, FALSE); // Unlock before removing? Actually bin removal handles it
+      gst_bin_remove(GST_BIN(pipeline_), videosrc_);
+
+      // 2. Create new source
+      videosrc_ = gst_device_create_element(newDevice, nullptr);
+      if (!videosrc_) {
+        g_printerr("Failed to create new element from camera device during unmute\n");
+        return false;
+      }
+
+      // 3. Add and link
+      gst_bin_add(GST_BIN(pipeline_), videosrc_);
+      if (!gst_element_link(videosrc_, videoconvert_)) {
+        g_printerr("Failed to link new videosrc -> videoconvert\n");
+        return false;
+      }
+
+      // 4. Sync state (will bring it to PLAYING)
+      if (!gst_element_sync_state_with_parent(videosrc_)) {
+        g_printerr("Failed to sync new videosrc state with parent\n");
+        return false;
+      }
+
+      g_print("Camera unmuted (replaced and restarted)\n");
+    } else {
+      // Restore existing element
+      gst_element_set_locked_state(videosrc_, FALSE);
+      gst_element_sync_state_with_parent(videosrc_);
+      g_print("Camera unmuted\n");
+    }
   }
   videoMuted_ = muted;
 

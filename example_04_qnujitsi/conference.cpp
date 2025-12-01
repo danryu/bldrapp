@@ -113,8 +113,8 @@ void Conference::scheduleStart(QQuickWindow* window) const {
   window->scheduleRenderJob(new SetPlayingRenderJob(pipeline_), QQuickWindow::BeforeSynchronizingStage);
 }
 
-bool Conference::setVideoMuted(bool muted) {
-  return send_ ? send_->setVideoMuted(muted) : false;
+bool Conference::setVideoMuted(bool muted, GstDevice* newDevice) {
+  return send_ ? send_->setVideoMuted(muted, newDevice) : false;
 }
 
 bool Conference::setAudioMuted(bool muted) {
