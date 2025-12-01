@@ -31,8 +31,11 @@ public:
   // Reserve a slot for local preview (mark as in-use)
   void reserveSlot(int slotIndex);
 
-  // Set participant info objects for updating UI (pass array of 4 ParticipantInfo pointers)
-  void setParticipantInfoSlots(ParticipantInfo* slot0, ParticipantInfo* slot1, ParticipantInfo* slot2, ParticipantInfo* slot3);
+  // Set participant info objects for updating UI (pass array of 16 ParticipantInfo pointers)
+  void setParticipantInfoSlots(ParticipantInfo* slot0, ParticipantInfo* slot1, ParticipantInfo* slot2, ParticipantInfo* slot3,
+                                 ParticipantInfo* slot4, ParticipantInfo* slot5, ParticipantInfo* slot6, ParticipantInfo* slot7,
+                                 ParticipantInfo* slot8, ParticipantInfo* slot9, ParticipantInfo* slot10, ParticipantInfo* slot11,
+                                 ParticipantInfo* slot12, ParticipantInfo* slot13, ParticipantInfo* slot14, ParticipantInfo* slot15);
 
   // Disconnect all jitsibin signals and mark as shutting down
   // Must be called before setting pipeline to NULL to prevent use-after-free

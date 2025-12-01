@@ -129,9 +129,13 @@ bool Conference::isAudioMuted() const {
   return send_ ? send_->isAudioMuted() : false;
 }
 
-void Conference::setParticipantInfoSlots(ParticipantInfo* slot0, ParticipantInfo* slot1, ParticipantInfo* slot2, ParticipantInfo* slot3) {
+void Conference::setParticipantInfoSlots(ParticipantInfo* slot0, ParticipantInfo* slot1, ParticipantInfo* slot2, ParticipantInfo* slot3,
+                                           ParticipantInfo* slot4, ParticipantInfo* slot5, ParticipantInfo* slot6, ParticipantInfo* slot7,
+                                           ParticipantInfo* slot8, ParticipantInfo* slot9, ParticipantInfo* slot10, ParticipantInfo* slot11,
+                                           ParticipantInfo* slot12, ParticipantInfo* slot13, ParticipantInfo* slot14, ParticipantInfo* slot15) {
   if (participants_) {
-    participants_->setParticipantInfoSlots(slot0, slot1, slot2, slot3);
+    participants_->setParticipantInfoSlots(slot0, slot1, slot2, slot3, slot4, slot5, slot6, slot7,
+                                           slot8, slot9, slot10, slot11, slot12, slot13, slot14, slot15);
   }
 }
 

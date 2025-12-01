@@ -21,6 +21,18 @@ class AppController : public QObject {
   Q_PROPERTY(ParticipantInfo* slot1Info READ slot1Info CONSTANT)
   Q_PROPERTY(ParticipantInfo* slot2Info READ slot2Info CONSTANT)
   Q_PROPERTY(ParticipantInfo* slot3Info READ slot3Info CONSTANT)
+  Q_PROPERTY(ParticipantInfo* slot4Info READ slot4Info CONSTANT)
+  Q_PROPERTY(ParticipantInfo* slot5Info READ slot5Info CONSTANT)
+  Q_PROPERTY(ParticipantInfo* slot6Info READ slot6Info CONSTANT)
+  Q_PROPERTY(ParticipantInfo* slot7Info READ slot7Info CONSTANT)
+  Q_PROPERTY(ParticipantInfo* slot8Info READ slot8Info CONSTANT)
+  Q_PROPERTY(ParticipantInfo* slot9Info READ slot9Info CONSTANT)
+  Q_PROPERTY(ParticipantInfo* slot10Info READ slot10Info CONSTANT)
+  Q_PROPERTY(ParticipantInfo* slot11Info READ slot11Info CONSTANT)
+  Q_PROPERTY(ParticipantInfo* slot12Info READ slot12Info CONSTANT)
+  Q_PROPERTY(ParticipantInfo* slot13Info READ slot13Info CONSTANT)
+  Q_PROPERTY(ParticipantInfo* slot14Info READ slot14Info CONSTANT)
+  Q_PROPERTY(ParticipantInfo* slot15Info READ slot15Info CONSTANT)
 public:
   explicit AppController(QObject* parent = nullptr);
   ~AppController() override;
@@ -30,7 +42,7 @@ public:
                                        const QString& room,
                                        int videoWidth = 1280,
                                        int videoHeight = 720,
-                                       int receiveLimit = 4,
+                                       int receiveLimit = 15,
                                        int receiveMaxHeight = 720);
 
   Q_INVOKABLE void disconnectConference();
@@ -44,6 +56,18 @@ public:
   ParticipantInfo* slot1Info() const { return slot1Info_.get(); }
   ParticipantInfo* slot2Info() const { return slot2Info_.get(); }
   ParticipantInfo* slot3Info() const { return slot3Info_.get(); }
+  ParticipantInfo* slot4Info() const { return slot4Info_.get(); }
+  ParticipantInfo* slot5Info() const { return slot5Info_.get(); }
+  ParticipantInfo* slot6Info() const { return slot6Info_.get(); }
+  ParticipantInfo* slot7Info() const { return slot7Info_.get(); }
+  ParticipantInfo* slot8Info() const { return slot8Info_.get(); }
+  ParticipantInfo* slot9Info() const { return slot9Info_.get(); }
+  ParticipantInfo* slot10Info() const { return slot10Info_.get(); }
+  ParticipantInfo* slot11Info() const { return slot11Info_.get(); }
+  ParticipantInfo* slot12Info() const { return slot12Info_.get(); }
+  ParticipantInfo* slot13Info() const { return slot13Info_.get(); }
+  ParticipantInfo* slot14Info() const { return slot14Info_.get(); }
+  ParticipantInfo* slot15Info() const { return slot15Info_.get(); }
 
   // Mute controls
   bool isVideoMuted() const;
@@ -69,6 +93,18 @@ private:
   std::unique_ptr<ParticipantInfo> slot1Info_;
   std::unique_ptr<ParticipantInfo> slot2Info_;
   std::unique_ptr<ParticipantInfo> slot3Info_;
+  std::unique_ptr<ParticipantInfo> slot4Info_;
+  std::unique_ptr<ParticipantInfo> slot5Info_;
+  std::unique_ptr<ParticipantInfo> slot6Info_;
+  std::unique_ptr<ParticipantInfo> slot7Info_;
+  std::unique_ptr<ParticipantInfo> slot8Info_;
+  std::unique_ptr<ParticipantInfo> slot9Info_;
+  std::unique_ptr<ParticipantInfo> slot10Info_;
+  std::unique_ptr<ParticipantInfo> slot11Info_;
+  std::unique_ptr<ParticipantInfo> slot12Info_;
+  std::unique_ptr<ParticipantInfo> slot13Info_;
+  std::unique_ptr<ParticipantInfo> slot14Info_;
+  std::unique_ptr<ParticipantInfo> slot15Info_;
 };
 
 

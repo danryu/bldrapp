@@ -26,7 +26,7 @@ qnujitsi is a minimal Qt/QML application that demonstrates real-time audio/video
 
 ┌─────────────────── Video Receive Path (per participant) ────────────────┐
 │ jitsibin:src_*_H264_* → h264parse → vtdec → videoconvert → queue →      │
-│                         glupload → glcolorconvert → qml6glsink (slot 1-3)│
+│                         glupload → glcolorconvert → qml6glsink (slot 1-15)│
 └──────────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────── Audio Receive Path (per participant) ────────────────┐
@@ -38,9 +38,9 @@ qnujitsi is a minimal Qt/QML application that demonstrates real-time audio/video
 ### Slot Allocation
 
 - **Slot 0:** Local preview (reserved at initialization)
-- **Slots 1-3:** Remote participants (dynamically allocated via jitsibin pad-added signal)
+- **Slots 1-15:** Remote participants (dynamically allocated via jitsibin pad-added signal)
 
-QML declares 4 `GstGLQt6VideoItem` elements (`videoItem0` - `videoItem3`) in a 2x2 grid. C++ discovers these by `objectName` and pre-creates receive chains (videoconvert → queue → glupload → glcolorconvert → qml6glsink) for each slot.
+QML declares 16 `GstGLQt6VideoItem` elements (`videoItem0` - `videoItem15`) in a 4x4 grid. C++ discovers these by `objectName` and pre-creates receive chains (videoconvert → queue → glupload → glcolorconvert → qml6glsink) for each slot.
 
 ### Initialization Sequence
 
@@ -55,7 +55,7 @@ When jitsibin emits `pad-added` signal with new remote participant stream:
 1. **ParticipantManager::handlePadAdded()** parses codec from pad name (format: `participantId_CODEC_ssrc`)
 2. Routes to appropriate handler based on codec:
    - **OPUS (audio):** Creates audio chain: opusdec → audioconvert → audioresample → queue → osxaudiosink
-   - **H264 (video):** Acquires free slot (1-3), creates chain: h264parse → vtdec → existing slot videoconvert
+   - **H264 (video):** Acquires free slot (1-15), creates chain: h264parse → vtdec → existing slot videoconvert
 3. For audio: links and syncs chain first, then connects source pad (prevents clock disruption)
 4. For video: links jitsibin src pad to h264parse, syncs element states
 5. For video: marks slot as in-use and shows video item
@@ -86,7 +86,7 @@ Jitsibin properties set in Conference::build():
 - `room` - Conference room name
 - `nick` - Participant display name
 - `video-codec` - 1 (H264)
-- `receive-limit` - Max remote participants (4)
+- `receive-limit` - Max remote participants (15)
 - `receive-max-height` - Max receive resolution (720p)
 - `jitterbuffer-latency` - RTP jitter buffer (300ms)
 - `force-play` - Auto-start on connection

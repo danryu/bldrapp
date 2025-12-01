@@ -26,6 +26,18 @@ AppController::AppController(QObject* parent)
   slot1Info_ = std::make_unique<ParticipantInfo>(this);
   slot2Info_ = std::make_unique<ParticipantInfo>(this);
   slot3Info_ = std::make_unique<ParticipantInfo>(this);
+  slot4Info_ = std::make_unique<ParticipantInfo>(this);
+  slot5Info_ = std::make_unique<ParticipantInfo>(this);
+  slot6Info_ = std::make_unique<ParticipantInfo>(this);
+  slot7Info_ = std::make_unique<ParticipantInfo>(this);
+  slot8Info_ = std::make_unique<ParticipantInfo>(this);
+  slot9Info_ = std::make_unique<ParticipantInfo>(this);
+  slot10Info_ = std::make_unique<ParticipantInfo>(this);
+  slot11Info_ = std::make_unique<ParticipantInfo>(this);
+  slot12Info_ = std::make_unique<ParticipantInfo>(this);
+  slot13Info_ = std::make_unique<ParticipantInfo>(this);
+  slot14Info_ = std::make_unique<ParticipantInfo>(this);
+  slot15Info_ = std::make_unique<ParticipantInfo>(this);
 
   // Slot 0 is always local preview
   slot0Info_->setName("Local");
@@ -76,7 +88,11 @@ bool AppController::connectToConference(QQuickWindow* rootWindow,
   }
 
   // Set participant info slots for UI updates
-  conference_->setParticipantInfoSlots(slot0Info_.get(), slot1Info_.get(), slot2Info_.get(), slot3Info_.get());
+  conference_->setParticipantInfoSlots(
+      slot0Info_.get(), slot1Info_.get(), slot2Info_.get(), slot3Info_.get(),
+      slot4Info_.get(), slot5Info_.get(), slot6Info_.get(), slot7Info_.get(),
+      slot8Info_.get(), slot9Info_.get(), slot10Info_.get(), slot11Info_.get(),
+      slot12Info_.get(), slot13Info_.get(), slot14Info_.get(), slot15Info_.get());
 
   // Re-enumerate cameras to get fresh GstDevice objects
   // This is necessary on macOS where AVFoundation device handles become stale after use
@@ -170,6 +186,18 @@ void AppController::teardown() {
   slot1Info_->reset();
   slot2Info_->reset();
   slot3Info_->reset();
+  slot4Info_->reset();
+  slot5Info_->reset();
+  slot6Info_->reset();
+  slot7Info_->reset();
+  slot8Info_->reset();
+  slot9Info_->reset();
+  slot10Info_->reset();
+  slot11Info_->reset();
+  slot12Info_->reset();
+  slot13Info_->reset();
+  slot14Info_->reset();
+  slot15Info_->reset();
 
   // Reset mute states for local participant
   slot0Info_->setVideoMuted(false);
