@@ -1,4 +1,5 @@
 #include "audio_manager.h"
+#include "platform_elements.h"
 
 #include <gst/gst.h>
 #include <QDebug>
@@ -46,20 +47,34 @@ bool AudioManager::enumerateAudioDevices() {
         GstElement* element = gst_device_create_element(device, nullptr);
 
         if (element) {
-            // Check if this is an osxaudiosrc element (macOS audio source)
+            // Check if this is the platform-appropriate audio source element
             const gchar* factoryName = gst_plugin_feature_get_name(
                 GST_PLUGIN_FEATURE(gst_element_get_factory(element)));
 
-            if (g_strcmp0(factoryName, "osxaudiosrc") == 0) {
-                // Get the actual CoreAudio device ID from the element
-                // osxaudiosrc's "device" property is the AudioDeviceID, not a sequential index
-                gint coreAudioDeviceId = 0;
-                g_object_get(G_OBJECT(element), "device", &coreAudioDeviceId, NULL);
+            const char* platformAudioName = getPlatformAudioSourceElementName();
+            if (g_strcmp0(factoryName, platformAudioName) == 0) {
+                // Platform-specific device ID handling
+                std::string deviceId;
 
-                std::string displayName = name ? std::string(name) : ("Microphone " + std::to_string(coreAudioDeviceId));
-                audioDevices_.emplace_back(std::to_string(coreAudioDeviceId), displayName);
-                qDebug() << "Found audio device with CoreAudio ID" << coreAudioDeviceId 
-                         << ":" << QString::fromStdString(displayName);
+                if (g_strcmp0(factoryName, "osxaudiosrc") == 0) {
+                    // macOS: Get the CoreAudio device ID
+                    gint coreAudioDeviceId = 0;
+                    g_object_get(G_OBJECT(element), "device", &coreAudioDeviceId, NULL);
+                    deviceId = std::to_string(coreAudioDeviceId);
+                } else if (g_strcmp0(factoryName, "wasapisrc") == 0) {
+                    // Windows: Get the WASAPI device GUID string
+                    gchar* deviceGuid = nullptr;
+                    g_object_get(G_OBJECT(element), "device", &deviceGuid, NULL);
+                    deviceId = deviceGuid ? std::string(deviceGuid) : "";
+                    if (deviceGuid) g_free(deviceGuid);
+                } else {
+                    // Linux or other: Use device name from device monitor
+                    deviceId = name ? std::string(name) : "";
+                }
+
+                std::string displayName = name ? std::string(name) : ("Microphone " + deviceId);
+                audioDevices_.emplace_back(deviceId, displayName);
+                qDebug() << "Found audio device:" << QString::fromStdString(displayName);
             }
 
             gst_object_unref(element);

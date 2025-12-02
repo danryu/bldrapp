@@ -1,4 +1,5 @@
 #include "camera_manager.h"
+#include "platform_elements.h"
 
 #include <gst/gst.h>
 #include <QDebug>
@@ -47,11 +48,13 @@ bool CameraManager::enumerateCameras() {
         GstElement* element = gst_device_create_element(device, nullptr);
 
         if (element) {
-            // Check if this is an avfvideosrc element
+            // Check if this is the platform-appropriate camera element
             const gchar* factoryName = gst_plugin_feature_get_name(
                 GST_PLUGIN_FEATURE(gst_element_get_factory(element)));
 
-            if (g_strcmp0(factoryName, "avfvideosrc") == 0) {
+            const char* platformCameraName = getPlatformCameraElementName();
+            //FIXME - this may not be a sensible test. We are needing to check for device indexing issues, as in fix-camera-selection.md
+            if (g_strcmp0(factoryName, platformCameraName) == 0) {
                 std::string displayName = name ? std::string(name) : "Unknown Camera";
                 // Store the GstDevice directly - CameraDevice will ref it
                 cameras_.emplace_back(device, displayName);

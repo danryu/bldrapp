@@ -1,4 +1,5 @@
 #include "send_pipeline.h"
+#include "platform_elements.h"
 
 #include <gst/gst.h>
 
@@ -65,10 +66,20 @@ bool SendPipeline::createElements(bool withLocalPreview, GstDevice* cameraDevice
     local_queue_ = gst_element_factory_make("queue", nullptr);
   }
 
-  vtenc_        = gst_element_factory_make("vtenc_h264", nullptr);
+  // Create platform-appropriate video encoder
+  VideoEncoderConfig encoderConfig = createPlatformVideoEncoder();
+  vtenc_ = encoderConfig.element;
+  encoderName_ = encoderConfig.encoder_name;
+  isHardwareEncoder_ = encoderConfig.is_hardware;
+
   h264parse_    = gst_element_factory_make("h264parse", nullptr);
   video_queue_  = gst_element_factory_make("queue", nullptr);
-  audiosrc_     = gst_element_factory_make("osxaudiosrc", nullptr);
+
+  // Create platform-appropriate audio source
+  AudioSourceConfig audioConfig = createPlatformAudioSource();
+  audiosrc_ = audioConfig.element;
+  audioSourceName_ = audioConfig.source_name;
+
   audioconvert_ = gst_element_factory_make("audioconvert", nullptr);
   volume_       = gst_element_factory_make("volume", nullptr);
   opusenc_      = gst_element_factory_make("opusenc", nullptr);
@@ -123,11 +134,9 @@ void SendPipeline::configureElements(int /*videoWidth*/, int /*videoHeight*/,
                  NULL);
   }
 
-  // Encoder low latency
-  g_object_set(G_OBJECT(vtenc_),
-               "realtime", TRUE,
-               "allow-frame-reordering", FALSE,
-               NULL);
+  // Configure platform-specific video encoder for low latency
+  VideoEncoderConfig encoderConfig = {vtenc_, encoderName_, isHardwareEncoder_};
+  configurePlatformVideoEncoder(encoderConfig, 2500);  // 2.5 Mbps default bitrate
 
   // h264parse: send SPS/PPS with every IDR
   g_object_set(G_OBJECT(h264parse_),
@@ -143,16 +152,9 @@ void SendPipeline::configureElements(int /*videoWidth*/, int /*videoHeight*/,
     g_object_set(G_OBJECT(videosrc_), "is-live", TRUE, NULL);
   }
 
-  // Configure audio source device
-  if (audioDeviceIndex != nullptr && strlen(audioDeviceIndex) > 0) {
-    int audioDevice = atoi(audioDeviceIndex);
-    g_object_set(G_OBJECT(audiosrc_),
-                 "device", audioDevice,
-                 NULL);
-    g_print("Configured audio source with device=%d\n", audioDevice);
-  } else {
-    g_print("Using default audio device\n");
-  }
+  // Configure platform-specific audio source device
+  AudioSourceConfig audioConfig = {audiosrc_, audioSourceName_};
+  configurePlatformAudioSource(audioConfig, audioDeviceIndex);
 }
 
 bool SendPipeline::addToBinAndLink(int videoWidth, int videoHeight, GstElement* localSlotVideoconvert) {
@@ -195,7 +197,7 @@ bool SendPipeline::addToBinAndLink(int videoWidth, int videoHeight, GstElement* 
   }
 
   g_print("=== Video send pipeline ===\n");
-  const char* srcType = useCamera_ ? "avfvideosrc (camera)" : "videotestsrc";
+  const char* srcType = useCamera_ ? "camera" : "videotestsrc";
   if (localSlotVideoconvert) {
     if (useCamera_) {
       g_print("%s -> videoconvert -> videorate -> videoscale -> tee\n", srcType);
@@ -203,15 +205,14 @@ bool SendPipeline::addToBinAndLink(int videoWidth, int videoHeight, GstElement* 
       g_print("%s -> videoscale -> tee\n", srcType);
     }
     g_print("  tee branch 1: queue(leaky) -> videoconvert (slot 0 for local preview)\n");
-    g_print("  tee branch 2: vtenc_h264 -> h264parse -> queue(leaky) -> jitsibin:video_sink\n");
+    g_print("  tee branch 2: %s -> h264parse -> queue(leaky) -> jitsibin:video_sink\n", encoderName_);
   } else {
     if (useCamera_) {
-      g_print("%s -> videoconvert -> videorate -> videoscale -> vtenc_h264 -> h264parse -> queue(leaky) -> jitsibin:video_sink\n", srcType);
+      g_print("%s -> videoconvert -> videorate -> videoscale -> %s -> h264parse -> queue(leaky) -> jitsibin:video_sink\n", srcType, encoderName_);
     } else {
-      g_print("%s -> videoscale -> vtenc_h264 -> h264parse -> queue(leaky) -> jitsibin:video_sink\n", srcType);
+      g_print("%s -> videoscale -> %s -> h264parse -> queue(leaky) -> jitsibin:video_sink\n", srcType, encoderName_);
     }
   }
-  g_print("Encoder configured: realtime=TRUE, allow-frame-reordering=FALSE\n");
 
   // Link video source chain
   GstElement* scaleInput = nullptr;
@@ -369,7 +370,7 @@ bool SendPipeline::addToBinAndLink(int videoWidth, int videoHeight, GstElement* 
     return false;
   }
   g_print("=== Audio send pipeline ===\n");
-  g_print("osxaudiosrc (microphone) -> audioconvert -> volume -> opusenc -> jitsibin:audio_sink\n");
+  g_print("%s (microphone) -> audioconvert -> volume -> opusenc -> jitsibin:audio_sink\n", audioSourceName_);
 
   return true;
 }

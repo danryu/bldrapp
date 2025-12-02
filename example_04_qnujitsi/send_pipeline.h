@@ -55,6 +55,11 @@ private:
   bool useCamera_ {false};
   bool videoMuted_ {false};
   bool audioMuted_ {false};
+
+  // Platform-specific element tracking
+  const char* encoderName_ {nullptr};
+  const char* audioSourceName_ {nullptr};
+  bool isHardwareEncoder_ {false};
 };
 
 

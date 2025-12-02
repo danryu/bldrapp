@@ -1,5 +1,6 @@
 #include "participant_manager.h"
 #include "participant_info.h"
+#include "platform_elements.h"
 
 #include <QQmlApplicationEngine>
 #include <QQuickWindow>
@@ -368,14 +369,17 @@ void ParticipantManager::handlePadAdded(GstPad* pad) {
 void ParticipantManager::handleAudioPadAdded(GstPad* pad, const std::string& padName) {
   g_print("Setting up audio receive chain for pad %s\n", padName.c_str());
 
-  // Create audio receive chain: opusdec -> audioconvert -> audioresample -> queue -> osxaudiosink
+  // Create audio receive chain: opusdec -> audioconvert -> audioresample -> queue -> platform audio sink
   // The queue decouples audio processing from the rest of the pipeline, preventing
   // clock/timing disruption when audio is added to an already-running pipeline.
   GstElement* dec = gst_element_factory_make("opusdec", nullptr);
   GstElement* conv = gst_element_factory_make("audioconvert", nullptr);
   GstElement* resample = gst_element_factory_make("audioresample", nullptr);
   GstElement* queue = gst_element_factory_make("queue", nullptr);
-  GstElement* sink = gst_element_factory_make("osxaudiosink", nullptr);  // Direct sink, not autoaudiosink
+
+  // Create platform-appropriate audio sink
+  AudioSinkConfig sinkConfig = createPlatformAudioSink();
+  GstElement* sink = sinkConfig.element;
 
   if (!dec || !conv || !resample || !queue || !sink) {
     g_printerr("Failed to create audio receive chain elements\n");
@@ -395,14 +399,8 @@ void ParticipantManager::handleAudioPadAdded(GstPad* pad, const std::string& pad
                "leaky", 2,  // GST_QUEUE_LEAK_DOWNSTREAM - drop old if full
                NULL);
 
-  // Configure sink for real-time playback without clock sync
-  // CRITICAL: sync=FALSE prevents audio sink from affecting pipeline clock,
-  // which would otherwise cause video frame rate to drop significantly.
-  // In real-time conferencing, jitsibin's jitter buffer handles timing.
-  g_object_set(G_OBJECT(sink),
-               "sync", FALSE,   // Play audio immediately without clock sync
-               "async", FALSE,  // Don't affect pipeline state transitions
-               NULL);
+  // Configure platform-specific audio sink for real-time playback
+  configurePlatformAudioSink(sinkConfig);
 
   gst_bin_add_many(GST_BIN(pipeline_), dec, conv, resample, queue, sink, NULL);
 
@@ -473,21 +471,20 @@ void ParticipantManager::handleVideoPadAdded(GstPad* pad, const std::string& pad
     return;
   }
 
-  // Simplified H.264 receive chain mirroring example_00a_qreceiver: h264parse -> vtdec -> videoconvert
+  // Create H.264 receive chain: h264parse -> platform decoder -> videoconvert
   GstElement* parse = gst_element_factory_make("h264parse", nullptr);
-  GstElement* dec = gst_element_factory_make("vtdec", nullptr);
-  if (!dec) dec = gst_element_factory_make("avdec_h264", nullptr);
-  
+
+  // Create platform-appropriate video decoder
+  VideoDecoderConfig decoderConfig = createPlatformVideoDecoder();
+  GstElement* dec = decoderConfig.element;
+
   if (!parse || !dec) {
     g_printerr("Failed to create H264 receive chain elements\n");
     return;
   }
 
-  // Use GST_VIDEO_DECODER_REQUEST_SYNC_POINT_CORRUPT_OUTPUT flag as in example_00a_qreceiver
-  g_object_set(G_OBJECT(dec),
-               "automatic-request-sync-points", TRUE,
-               "automatic-request-sync-point-flags", GST_VIDEO_DECODER_REQUEST_SYNC_POINT_CORRUPT_OUTPUT,
-               NULL);
+  // Configure platform-specific video decoder
+  configurePlatformVideoDecoder(decoderConfig);
 
   gst_bin_add_many(GST_BIN(pipeline_), parse, dec, NULL);
 
@@ -531,7 +528,7 @@ void ParticipantManager::handleVideoPadAdded(GstPad* pad, const std::string& pad
   gst_element_sync_state_with_parent(parse);
 
 
-  g_print("H264 receive chain linked OK (slot %d) - simplified pipeline\n", slot_index);
+  g_print("H264 receive chain linked OK (slot %d) using %s decoder\n", slot_index, decoderConfig.decoder_name);
 
   {
     std::lock_guard<std::mutex> lock(slotMutex_);
