@@ -3,8 +3,7 @@
 //
 // This app demonstrates sending and receiving media to a Jitsi Meet conference
 // using the custom `jitsibin` GStreamer element. Video is rendered via
-// `qml6glsink` into a QML item. The receive pipeline uses decodebin which
-// automatically selects the appropriate decoder (hardware-accelerated when available)
+// `qml6glsink` into a QML item. 
 
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
@@ -13,13 +12,12 @@
 #include <QQuickWindow>
 #include <QQuickItem>
 #include <thread>
+#include <vector>
 
 #include <gst/gst.h>
 #include <gst/gstdebugutils.h>
 #include <gst/video/video.h>
 #include <gst/video/video-event.h>
-
-#include <vector>
 
 #include "app_controller.h"
 
