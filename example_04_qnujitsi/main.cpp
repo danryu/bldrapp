@@ -19,7 +19,7 @@
 #include <gst/video/video.h>
 #include <gst/video/video-event.h>
 
-#include "app_controller.h"
+#include "src/app_controller.h"
 
 // Forward declare static plugin initialization function
 extern "C" void gst_init_static_plugins(void);
@@ -53,7 +53,7 @@ int main(int argc, char* argv[]) {
 
   // Load QML UI
   QQmlApplicationEngine engine;
-  engine.load(QUrl(QStringLiteral("qrc:/main.qml")));
+  engine.load(QUrl(QStringLiteral("qrc:/qml/main.qml")));
   if (engine.rootObjects().isEmpty()) return 1;
 
   int ret = app.exec();
