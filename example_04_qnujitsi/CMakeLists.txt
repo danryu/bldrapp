@@ -53,7 +53,7 @@ set(SOURCES
     src/participant_manager.cpp
     src/send_pipeline.cpp
     src/conference.cpp
-    src/app_controller.cpp
+    src/conference_controller.cpp
     src/camera_manager.cpp
     src/audio_manager.cpp
     src/participant_info.cpp

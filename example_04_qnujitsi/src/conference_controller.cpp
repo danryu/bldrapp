@@ -1,4 +1,4 @@
-#include "app_controller.h"
+#include "conference_controller.h"
 
 #include <QCoreApplication>
 #include <QQuickWindow>
@@ -11,7 +11,7 @@
 #include "audio_manager.h"
 #include "participant_info.h"
 
-AppController::AppController(QObject* parent)
+ConferenceController::ConferenceController(QObject* parent)
   : QObject(parent) {
   // Initialize camera manager and enumerate cameras
   cameraManager_ = std::make_unique<CameraManager>(this);
@@ -51,11 +51,11 @@ AppController::AppController(QObject* parent)
   }
 }
 
-AppController::~AppController() {
+ConferenceController::~ConferenceController() {
   teardown();
 }
 
-bool AppController::connectToConference(QQuickWindow* rootWindow,
+bool ConferenceController::connectToConference(QQuickWindow* rootWindow,
                                         const QString& host,
                                         const QString& room,
                                         int videoWidth,
@@ -150,15 +150,15 @@ bool AppController::connectToConference(QQuickWindow* rootWindow,
   return true;
 }
 
-void AppController::disconnectConference() {
+void ConferenceController::disconnectConference() {
   teardown();
 }
 
-bool AppController::isConnected() const {
+bool ConferenceController::isConnected() const {
   return static_cast<bool>(conference_);
 }
 
-void AppController::teardown() {
+void ConferenceController::teardown() {
   if (!conference_) return;
   GstElement* pipeline = conference_->pipeline();
 
@@ -208,15 +208,15 @@ void AppController::teardown() {
   emit audioMutedChanged();
 }
 
-bool AppController::isVideoMuted() const {
+bool ConferenceController::isVideoMuted() const {
   return conference_ ? conference_->isVideoMuted() : false;
 }
 
-bool AppController::isAudioMuted() const {
+bool ConferenceController::isAudioMuted() const {
   return conference_ ? conference_->isAudioMuted() : false;
 }
 
-void AppController::setVideoMuted(bool muted) {
+void ConferenceController::setVideoMuted(bool muted) {
   if (muted) {
     // Muting: simple state change (to NULL)
     if (conference_ && conference_->setVideoMuted(true)) {
@@ -261,7 +261,7 @@ void AppController::setVideoMuted(bool muted) {
   }
 }
 
-void AppController::setAudioMuted(bool muted) {
+void ConferenceController::setAudioMuted(bool muted) {
   if (conference_ && conference_->setAudioMuted(muted)) {
     // Update local participant info to reflect mute state
     slot0Info_->setAudioMuted(muted);

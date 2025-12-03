@@ -19,7 +19,7 @@
 #include <gst/video/video.h>
 #include <gst/video/video-event.h>
 
-#include "src/app_controller.h"
+#include "src/conference_controller.h"
 
 // Forward declare static plugin initialization function
 extern "C" void gst_init_static_plugins(void);
@@ -48,8 +48,8 @@ int main(int argc, char* argv[]) {
   QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
 
   // Register controller as a QML singleton
-  qmlRegisterSingletonType<AppController>("Qnujitsi", 1, 0, "AppController",
-    [](QQmlEngine*, QJSEngine*) -> QObject* { return new AppController(); });
+  qmlRegisterSingletonType<ConferenceController>("Qnujitsi", 1, 0, "ConferenceController",
+    [](QQmlEngine*, QJSEngine*) -> QObject* { return new ConferenceController(); });
 
   // Load QML UI
   QQmlApplicationEngine engine;

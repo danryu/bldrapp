@@ -6,7 +6,7 @@ qnujitsi is a minimal Qt/QML application that demonstrates real-time audio/video
 
 ### Components
 
-- **AppController** - Qt singleton managing conference lifecycle and QML integration
+- **ConferenceController** - Qt singleton managing conference lifecycle and QML integration
 - **Conference** - Orchestrates pipeline, jitsibin, send, and participant management
 - **SendPipeline** - Encapsulates local AV send path with tee for local preview
 - **ParticipantManager** - Manages receive slots and dynamic pad handling for remote participants

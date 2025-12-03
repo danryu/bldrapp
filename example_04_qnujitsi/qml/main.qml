@@ -26,40 +26,40 @@ ApplicationWindow {
             Label { text: "Cam:"; color: "white" }
             ComboBox {
                 id: cameraCombo
-                model: AppController.cameraManager.cameraNames
-                currentIndex: AppController.cameraManager.currentCameraIndex
-                enabled: !AppController.connected
+                model: ConferenceController.cameraManager.cameraNames
+                currentIndex: ConferenceController.cameraManager.currentCameraIndex
+                enabled: !ConferenceController.connected
                 onCurrentIndexChanged: {
-                    if (currentIndex !== AppController.cameraManager.currentCameraIndex) {
-                        AppController.cameraManager.currentCameraIndex = currentIndex
+                    if (currentIndex !== ConferenceController.cameraManager.currentCameraIndex) {
+                        ConferenceController.cameraManager.currentCameraIndex = currentIndex
                     }
                 }
                 Layout.preferredWidth: 140
             }
             Button {
                 id: muteVideoButton
-                text: AppController.videoMuted ? "📷 Off" : "📷 On"
-                enabled: AppController.connected
-                onClicked: AppController.videoMuted = !AppController.videoMuted
+                text: ConferenceController.videoMuted ? "📷 Off" : "📷 On"
+                enabled: ConferenceController.connected
+                onClicked: ConferenceController.videoMuted = !ConferenceController.videoMuted
             }
             Label { text: "Mic:"; color: "white" }
             ComboBox {
                 id: audioCombo
-                model: AppController.audioManager.audioDeviceNames
-                currentIndex: AppController.audioManager.currentAudioDeviceIndex
-                enabled: !AppController.connected
+                model: ConferenceController.audioManager.audioDeviceNames
+                currentIndex: ConferenceController.audioManager.currentAudioDeviceIndex
+                enabled: !ConferenceController.connected
                 onCurrentIndexChanged: {
-                    if (currentIndex !== AppController.audioManager.currentAudioDeviceIndex) {
-                        AppController.audioManager.currentAudioDeviceIndex = currentIndex
+                    if (currentIndex !== ConferenceController.audioManager.currentAudioDeviceIndex) {
+                        ConferenceController.audioManager.currentAudioDeviceIndex = currentIndex
                     }
                 }
                 Layout.preferredWidth: 140
             }
             Button {
                 id: muteAudioButton
-                text: AppController.audioMuted ? "🎤 Off" : "🎤 On"
-                enabled: AppController.connected
-                onClicked: AppController.audioMuted = !AppController.audioMuted
+                text: ConferenceController.audioMuted ? "🎤 Off" : "🎤 On"
+                enabled: ConferenceController.connected
+                onClicked: ConferenceController.audioMuted = !ConferenceController.audioMuted
             }
             Label { text: "Host:"; color: "white" }
             TextField { id: hostField; placeholderText: "meet.jit.si"; text: "0yg8c4go.ki.kormix.io"; selectByMouse: true; Layout.preferredWidth: 160 }
@@ -69,17 +69,17 @@ ApplicationWindow {
             Button {
                 id: connectButton
                 text: "Connect"
-                enabled: !AppController.connected
+                enabled: !ConferenceController.connected
                 onClicked: {
-                    AppController.connectToConference(window, hostField.text, roomField.text, 1280, 720, 15, 720)
+                    ConferenceController.connectToConference(window, hostField.text, roomField.text, 1280, 720, 15, 720)
                 }
             }
             Button {
                 id: disconnectButton
                 text: "Disconnect"
-                enabled: AppController.connected
+                enabled: ConferenceController.connected
                 onClicked: {
-                    AppController.disconnectConference()
+                    ConferenceController.disconnectConference()
                 }
             }
         }

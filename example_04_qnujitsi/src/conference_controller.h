@@ -10,7 +10,7 @@
 class QQuickWindow;
 class Conference;
 
-class AppController : public QObject {
+class ConferenceController : public QObject {
   Q_OBJECT
   Q_PROPERTY(bool connected READ isConnected NOTIFY connectedChanged)
   Q_PROPERTY(CameraManager* cameraManager READ cameraManager CONSTANT)
@@ -34,8 +34,8 @@ class AppController : public QObject {
   Q_PROPERTY(ParticipantInfo* slot14Info READ slot14Info CONSTANT)
   Q_PROPERTY(ParticipantInfo* slot15Info READ slot15Info CONSTANT)
 public:
-  explicit AppController(QObject* parent = nullptr);
-  ~AppController() override;
+  explicit ConferenceController(QObject* parent = nullptr);
+  ~ConferenceController() override;
 
   Q_INVOKABLE bool connectToConference(QQuickWindow* rootWindow,
                                        const QString& host,
@@ -88,7 +88,7 @@ private:
   std::unique_ptr<CameraManager> cameraManager_;
   std::unique_ptr<AudioManager> audioManager_;
 
-  // Participant info for each slot (owned by AppController, exposed to QML)
+  // Participant info for each slot (owned by ConferenceController, exposed to QML)
   std::unique_ptr<ParticipantInfo> slot0Info_;
   std::unique_ptr<ParticipantInfo> slot1Info_;
   std::unique_ptr<ParticipantInfo> slot2Info_;
