@@ -475,45 +475,129 @@ echo "Added libwebsockets to PKG_CONFIG_PATH: ${LWS_INSTALL}/lib/pkgconfig"
 
 
 ##############################################################################################################################
+# Setup gstjitsimeet plugin and its dependencies
+# Steps 1-3 from gstjitsimeet/build_gstjitsimeet.sh:
+# 1. Clone gstjitsimeet repository
+# 2. Clone and setup submod utility (for submodule management)
+# 3. Clone and build coop dependency
+# 4. Initialize gstjitsimeet submodules
+##############################################################################################################################
+echo ""
+echo "Step 3f: Setting up gstjitsimeet plugin and dependencies..."
 
-# Ensure our local wraps are installed for fallbacks/custom subprojects
-if [ -f "${BUILD_DIR}/wraps/proxy-libintl.wrap" ]; then
-	mkdir -p "subprojects"
-	cp -f "${BUILD_DIR}/wraps/proxy-libintl.wrap" "subprojects/proxy-libintl.wrap"
+GSTJ_DIR="${BUILD_DIR}/gstjitsimeet"
+GSTJ_DEPS="${GSTJ_DIR}/deps"
+GSTJ_COOP_INSTALL="${GSTJ_DEPS}/coop-install"
+
+# Step 1: Clone gstjitsimeet repository
+if [ ! -d "${GSTJ_DIR}" ]; then
+	echo "Cloning gstjitsimeet repository..."
+	cd "${BUILD_DIR}"
+	git clone -b kdev https://github.com/danryu/gstjitsimeet.git
+	cd gstreamer
+else
+	echo "gstjitsimeet repository already exists at ${GSTJ_DIR}"
 fi
+
+# Step 2: Clone and setup submod utility
+echo "Setting up submod utility..."
+mkdir -p "${GSTJ_DEPS}"
+cd "${GSTJ_DEPS}"
+
+if [ ! -d "submod" ]; then
+	echo "Cloning danryu/submod (kdev branch)..."
+	git clone -b kdev https://github.com/danryu/submod.git
+else
+	echo "submod directory already exists"
+	cd submod
+	git fetch origin || true
+	git checkout kdev || true
+	git pull || true
+	cd ..
+fi
+
+echo "submod utility ready at: ${GSTJ_DEPS}/submod"
+
+# Step 3: Clone and build coop dependency
+echo "Building coop dependency..."
+
+if [ ! -d "coop" ]; then
+	echo "Cloning danryu/coop (kdev branch)..."
+	git clone -b kdev https://github.com/danryu/coop.git
+else
+	echo "coop directory already exists"
+	cd coop
+	git fetch origin || true
+	git checkout kdev || true
+	git pull || true
+	cd ..
+fi
+
+# Build coop if not already built
+if [ ! -d "${GSTJ_COOP_INSTALL}" ]; then
+	cd coop
+	echo "Building coop (kdev branch)..."
+	if [ -d "build" ]; then
+		rm -rf build
+	fi
+
+	# Determine CPU count for parallel builds
+	case "${PLATFORM}" in
+		macos)
+			NUM_CPUS=$(sysctl -n hw.ncpu)
+			;;
+		linux)
+			NUM_CPUS=$(nproc)
+			;;
+		windows)
+			NUM_CPUS=${NUMBER_OF_PROCESSORS:-4}
+			;;
+	esac
+
+	meson setup build --prefix="${GSTJ_COOP_INSTALL}" --buildtype=release --default-library=static
+	ninja -C build -j${NUM_CPUS}
+	ninja -C build install
+
+	echo "coop built and installed to: ${GSTJ_COOP_INSTALL}"
+	cd "${GSTJ_DEPS}"
+else
+	echo "coop already built at ${GSTJ_COOP_INSTALL}"
+fi
+
+# Step 4: Initialize gstjitsimeet submodules with submod
+echo "Initializing gstjitsimeet submodules..."
+cd "${GSTJ_DIR}"
+"${GSTJ_DEPS}/submod/submod" clone
+
+echo "gstjitsimeet submodules initialized"
+
+# Return to gstreamer directory for rest of build
+cd "${BUILD_DIR}/gstreamer"
+
+echo "gstjitsimeet setup complete!"
+##############################################################################################################################
+
+
+##############################################################################################################################
+
+# Ensure our local wraps are installed for custom subprojects
 if [ -f "${BUILD_DIR}/wraps/gstjitsimeet.wrap" ]; then
 	mkdir -p "subprojects"
 	cp -f "${BUILD_DIR}/wraps/gstjitsimeet.wrap" "subprojects/gstjitsimeet.wrap"
 fi
 
-
-# Link local gstjitsimeet directory into subprojects to avoid any VCS/network usage
-GSTJ_LOCAL="/Users/dan/code/gstjitsimeet"
-if [ -d "${GSTJ_LOCAL}" ] && [ ! -d "subprojects/gstjitsimeet" ]; then
-	ln -s "${GSTJ_LOCAL}" "subprojects/gstjitsimeet"
+# Link gstjitsimeet directory into subprojects to avoid any VCS/network usage
+if [ -d "${GSTJ_DIR}" ] && [ ! -d "subprojects/gstjitsimeet" ]; then
+	ln -s "${GSTJ_DIR}" "subprojects/gstjitsimeet"
 fi
 
-# If gstjitsimeet's local coop install exists, expose its pkg-config path
-GSTJ_COOP_PC="$(pwd)/subprojects/gstjitsimeet/deps/coop-install/lib/pkgconfig"
-if [ -d "${GSTJ_COOP_PC}" ]; then
-	export PKG_CONFIG_PATH="${GSTJ_COOP_PC}:${PKG_CONFIG_PATH}"
+# Expose coop pkg-config path for gstjitsimeet build
+if [ -d "${GSTJ_COOP_INSTALL}/lib/pkgconfig" ]; then
+	export PKG_CONFIG_PATH="${GSTJ_COOP_INSTALL}/lib/pkgconfig:${PKG_CONFIG_PATH}"
+	echo "Added coop to PKG_CONFIG_PATH: ${GSTJ_COOP_INSTALL}/lib/pkgconfig"
 fi
 ##############################################################################################################################
 
-##############################################################################################################################
-# Download proxy-libintl; gstjitsimeet is provided locally via symlink, libwebsockets pre-built
-meson subprojects download proxy-libintl || true
-
-# Ensure proxy-libintl overrides dependency('intl') even if upstream changes
-PROXY_INTL_DIR="subprojects/proxy-libintl"
-if [ -d "${PROXY_INTL_DIR}" ]; then
-	if ! grep -q "override_dependency('intl'" "${PROXY_INTL_DIR}/meson.build" 2>/dev/null; then
-		if [ -f "${BUILD_DIR}/patches/proxy-libintl/meson.build.append" ]; then
-			printf "\n%s\n" "$(cat "${BUILD_DIR}/patches/proxy-libintl/meson.build.append")" >> "${PROXY_INTL_DIR}/meson.build"
-		fi
-	fi
-fi
-##############################################################################################################################
 
 # Configure with Meson (STATIC build)
 # Enable gst-full (monolithic static library)
