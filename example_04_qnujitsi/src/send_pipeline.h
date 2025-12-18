@@ -26,6 +26,9 @@ public:
   bool isVideoMuted() const { return videoMuted_; }
   bool isAudioMuted() const { return audioMuted_; }
 
+  // Hot-swap camera source while pipeline is running
+  bool setCamera(GstDevice* newDevice);
+
 private:
   bool createElements(bool withLocalPreview, GstDevice* cameraDevice);
   void configureElements(int videoWidth, int videoHeight, const char* audioDeviceIndex);

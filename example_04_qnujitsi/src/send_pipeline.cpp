@@ -478,3 +478,50 @@ bool SendPipeline::setAudioMuted(bool muted) {
   }
   return true;
 }
+bool SendPipeline::setCamera(GstDevice* newDevice) {
+  if (!useCamera_ || !videosrc_ || !newDevice) return false;
+
+  // Don't switch if video is muted (we'll switch on unmute instead)
+  if (videoMuted_) {
+    // Just update internal state if needed? 
+    // Actually, on unmute we rely on CameraManager's current selection, 
+    // so we don't need to do anything here if muted.
+    g_print("Camera switch requested while muted - will apply on unmute\n");
+    return true;
+  }
+
+  g_print("Hot-swapping camera source...\n");
+
+  // 1. Lock old source state
+  gst_element_set_locked_state(videosrc_, TRUE);
+  gst_element_set_state(videosrc_, GST_STATE_NULL);
+
+  // 2. Remove old source from bin
+  // Note: gst_bin_remove automatically unrefs the element
+  gst_bin_remove(GST_BIN(pipeline_), videosrc_);
+
+  // 3. Create new source from fresh device
+  videosrc_ = gst_device_create_element(newDevice, nullptr);
+  if (!videosrc_) {
+    g_printerr("Failed to create new element from camera device during hot-swap\n");
+    return false;
+  }
+
+  // 4. Add new source to bin
+  gst_bin_add(GST_BIN(pipeline_), videosrc_);
+
+  // 5. Link to videoconvert
+  if (!gst_element_link(videosrc_, videoconvert_)) {
+    g_printerr("Failed to link new videosrc -> videoconvert during hot-swap\n");
+    return false;
+  }
+
+  // 6. Sync state with parent (will bring it to PLAYING)
+  if (!gst_element_sync_state_with_parent(videosrc_)) {
+    g_printerr("Failed to sync new videosrc state with parent during hot-swap\n");
+    return false;
+  }
+
+  g_print("Camera hot-swap complete\n");
+  return true;
+}

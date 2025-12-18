@@ -11,22 +11,16 @@
 typedef struct _GstDevice GstDevice;
 
 struct CameraDevice {
-    GstDevice* device;         // GstDevice object (ref-counted, can be nullptr for fallback)
+    GstDevice* device;         // GstDevice object (ref-counted)
     std::string displayName;   // Human-readable name
 
     CameraDevice(GstDevice* dev, const std::string& dispName)
         : device(dev), displayName(dispName) {
-        // Ref the device if provided
-        if (device) {
-            gst_object_ref(device);
-        }
+        if (device) gst_object_ref(device);
     }
 
     ~CameraDevice() {
-        // Unref the device when destroyed
-        if (device) {
-            gst_object_unref(device);
-        }
+        if (device) gst_object_unref(device);
     }
 
     // Disable copy, enable move
@@ -34,7 +28,7 @@ struct CameraDevice {
     CameraDevice& operator=(const CameraDevice&) = delete;
     CameraDevice(CameraDevice&& other) noexcept
         : device(other.device), displayName(std::move(other.displayName)) {
-        other.device = nullptr;  // Transfer ownership
+        other.device = nullptr;
     }
     CameraDevice& operator=(CameraDevice&& other) noexcept {
         if (this != &other) {
@@ -54,6 +48,7 @@ class CameraManager : public QObject {
 
 public:
     explicit CameraManager(QObject* parent = nullptr);
+    ~CameraManager();
 
     // Enumerate available camera devices using GStreamer
     bool enumerateCameras();
@@ -74,6 +69,7 @@ public:
 signals:
     void camerasChanged();
     void currentCameraIndexChanged();
+    void cameraDeviceSelectionChanged(); // Signal when user actually changes selection
 
 private:
     std::vector<CameraDevice> cameras_;

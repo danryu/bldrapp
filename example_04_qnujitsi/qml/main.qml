@@ -28,7 +28,7 @@ ApplicationWindow {
                 id: cameraCombo
                 model: ConferenceController.cameraManager.cameraNames
                 currentIndex: ConferenceController.cameraManager.currentCameraIndex
-                enabled: !ConferenceController.connected
+                // enabled: !ConferenceController.connected
                 onCurrentIndexChanged: {
                     if (currentIndex !== ConferenceController.cameraManager.currentCameraIndex) {
                         ConferenceController.cameraManager.currentCameraIndex = currentIndex

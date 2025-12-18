@@ -42,6 +42,9 @@ public:
   bool isVideoMuted() const;
   bool isAudioMuted() const;
 
+  // Hot-swap camera source while connected
+  bool setCamera(GstDevice* newDevice);
+
   // Set participant info objects for each slot (pass to ParticipantManager)
   void setParticipantInfoSlots(ParticipantInfo* slot0, ParticipantInfo* slot1, ParticipantInfo* slot2, ParticipantInfo* slot3,
                                 ParticipantInfo* slot4, ParticipantInfo* slot5, ParticipantInfo* slot6, ParticipantInfo* slot7,

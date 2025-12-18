@@ -81,6 +81,9 @@ signals:
   void audioMutedChanged();
   void error(const QString& message);
 
+private slots:
+  void onCameraSelectionChanged();
+
 private:
   void teardown();
 

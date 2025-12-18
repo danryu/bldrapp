@@ -9,18 +9,25 @@ CameraManager::CameraManager(QObject* parent)
     : QObject(parent) {
 }
 
+CameraManager::~CameraManager() {
+    cameras_.clear();
+}
+
 bool CameraManager::enumerateCameras() {
+    // 1. Save current selection name to restore it after enumeration
+    std::string currentName;
+    if (currentCameraIndex_ >= 0 && currentCameraIndex_ < static_cast<int>(cameras_.size())) {
+        currentName = cameras_[currentCameraIndex_].displayName;
+    }
+
     cameras_.clear();
 
     // Use GstDeviceMonitor for proper device enumeration
     GstDeviceMonitor* monitor = gst_device_monitor_new();
     if (!monitor) {
         qWarning() << "Failed to create device monitor";
-        cameras_.emplace_back(nullptr, "Default Camera");
-        currentCameraIndex_ = 0;
-        emit currentCameraIndexChanged();
         emit camerasChanged();
-        return true;
+        return false;
     }
 
     // Add filter for video sources
@@ -32,11 +39,8 @@ bool CameraManager::enumerateCameras() {
     if (!gst_device_monitor_start(monitor)) {
         qWarning() << "Failed to start device monitor";
         gst_object_unref(monitor);
-        cameras_.emplace_back(nullptr, "Default Camera");
-        currentCameraIndex_ = 0;
-        emit currentCameraIndexChanged();
         emit camerasChanged();
-        return true;
+        return false;
     }
 
     // Get devices
@@ -45,49 +49,59 @@ bool CameraManager::enumerateCameras() {
     for (GList* l = devices; l != nullptr; l = l->next) {
         GstDevice* device = GST_DEVICE(l->data);
         gchar* name = gst_device_get_display_name(device);
-        GstElement* element = gst_device_create_element(device, nullptr);
+        
+        // Trust the monitor filter "Video/Source" for basic filtering.
+        // Platform specific checks could go here if needed, but are generally redundant
+        // with the GstDeviceMonitor logic if configured correctly.
 
-        if (element) {
-            // Check if this is the platform-appropriate camera element
-            const gchar* factoryName = gst_plugin_feature_get_name(
-                GST_PLUGIN_FEATURE(gst_element_get_factory(element)));
-
-            const char* platformCameraName = getPlatformCameraElementName();
-            //FIXME - this may not be a sensible test. We are needing to check for device indexing issues, as in fix-camera-selection.md
-            if (g_strcmp0(factoryName, platformCameraName) == 0) {
-                std::string displayName = name ? std::string(name) : "Unknown Camera";
-                // Store the GstDevice directly - CameraDevice will ref it
-                cameras_.emplace_back(device, displayName);
-                qDebug() << "Found camera:" << QString::fromStdString(displayName);
-            }
-
-            gst_object_unref(element);
-        }
-
+        std::string displayName = name ? std::string(name) : "Unknown Camera";
+        
+        // Store the GstDevice directly
+        cameras_.emplace_back(device, displayName);
+        qDebug() << "Found camera:" << QString::fromStdString(displayName);
+        
         if (name) g_free(name);
-        // Unref the device from the list - CameraDevice already took its own ref
-        gst_object_unref(device);
     }
+    
+    // Unref devices in the list (since we took our own refs in CameraDevice)
+    g_list_free_full(devices, gst_object_unref);
 
-    g_list_free(devices);
     gst_device_monitor_stop(monitor);
     gst_object_unref(monitor);
 
-    // If no cameras found, add default fallback (nullptr device)
-    if (cameras_.empty()) {
-        qWarning() << "No cameras found, adding default camera fallback";
-        cameras_.emplace_back(nullptr, "Default Camera");
-    }
-
-    // Sort cameras by display name to ensure stable order across enumerations
+    // Sort cameras by display name to ensure stable order
     std::sort(cameras_.begin(), cameras_.end(), [](const CameraDevice& a, const CameraDevice& b) {
         return a.displayName < b.displayName;
     });
 
-    // Select first camera by default
-    if (!cameras_.empty() && currentCameraIndex_ < 0) {
-        currentCameraIndex_ = 0;
-        emit currentCameraIndexChanged();
+    // 2. Restore selection by name
+    int newIndex = -1;
+    if (!currentName.empty()) {
+        for (size_t i = 0; i < cameras_.size(); ++i) {
+            if (cameras_[i].displayName == currentName) {
+                newIndex = static_cast<int>(i);
+                break;
+            }
+        }
+    }
+
+    // 3. Update index
+    if (newIndex >= 0) {
+        // Found the previous camera
+        if (currentCameraIndex_ != newIndex) {
+            currentCameraIndex_ = newIndex;
+            emit currentCameraIndexChanged();
+        }
+        // Note: We do NOT emit cameraDeviceSelectionChanged here because the logical selection hasn't changed
+    } else {
+        // Previous camera not found, select first available or -1
+        int nextIndex = cameras_.empty() ? -1 : 0;
+        
+        if (currentCameraIndex_ != nextIndex) {
+            currentCameraIndex_ = nextIndex;
+            emit currentCameraIndexChanged();
+            emit cameraDeviceSelectionChanged(); // Selection implicitly changed
+        }
     }
 
     emit camerasChanged();
@@ -113,6 +127,7 @@ void CameraManager::setCurrentCameraIndex(int index) {
     if (index >= 0 && index < static_cast<int>(cameras_.size()) && index != currentCameraIndex_) {
         currentCameraIndex_ = index;
         emit currentCameraIndexChanged();
+        emit cameraDeviceSelectionChanged();
         qDebug() << "Selected camera" << index << ":"
                  << QString::fromStdString(cameras_[index].displayName);
     }

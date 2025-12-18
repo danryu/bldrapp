@@ -129,6 +129,10 @@ bool Conference::isAudioMuted() const {
   return send_ ? send_->isAudioMuted() : false;
 }
 
+bool Conference::setCamera(GstDevice* newDevice) {
+  return send_ ? send_->setCamera(newDevice) : false;
+}
+
 void Conference::setParticipantInfoSlots(ParticipantInfo* slot0, ParticipantInfo* slot1, ParticipantInfo* slot2, ParticipantInfo* slot3,
                                            ParticipantInfo* slot4, ParticipantInfo* slot5, ParticipantInfo* slot6, ParticipantInfo* slot7,
                                            ParticipantInfo* slot8, ParticipantInfo* slot9, ParticipantInfo* slot10, ParticipantInfo* slot11,

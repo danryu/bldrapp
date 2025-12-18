@@ -21,6 +21,10 @@ ConferenceController::ConferenceController(QObject* parent)
   audioManager_ = std::make_unique<AudioManager>(this);
   audioManager_->enumerateAudioDevices();
 
+  // Listen for camera selection changes to hot-swap during active conference
+  connect(cameraManager_.get(), &CameraManager::cameraDeviceSelectionChanged,
+          this, &ConferenceController::onCameraSelectionChanged);
+
   // Initialize participant info for each slot
   slot0Info_ = std::make_unique<ParticipantInfo>(this);
   slot1Info_ = std::make_unique<ParticipantInfo>(this);
@@ -96,24 +100,9 @@ bool ConferenceController::connectToConference(QQuickWindow* rootWindow,
 
   // Re-enumerate cameras to get fresh GstDevice objects
   // This is necessary on macOS where AVFoundation device handles become stale after use
-  QString selectedCameraName;
+  // CameraManager::enumerateCameras() handles restoring the current selection by name
   if (cameraManager_) {
-    const CameraDevice* currentSelection = cameraManager_->selectedCamera();
-    if (currentSelection) {
-      selectedCameraName = QString::fromStdString(currentSelection->displayName);
-    }
-
     cameraManager_->enumerateCameras();
-
-    // Re-select the same camera by name (device-index values are volatile)
-    if (!selectedCameraName.isEmpty()) {
-      for (int i = 0; i < cameraManager_->cameraNames().size(); ++i) {
-        if (cameraManager_->cameraNames()[i] == selectedCameraName) {
-          cameraManager_->setCurrentCameraIndex(i);
-          break;
-        }
-      }
-    }
   }
 
   // Get selected camera device (now fresh)
@@ -228,28 +217,13 @@ void ConferenceController::setVideoMuted(bool muted) {
     GstDevice* freshDevice = nullptr;
     
     if (cameraManager_) {
-      // 1. Get current selection name
-      QString selectedCameraName;
-      const CameraDevice* currentSelection = cameraManager_->selectedCamera();
-      if (currentSelection) {
-        selectedCameraName = QString::fromStdString(currentSelection->displayName);
-      }
-      
-      // 2. Re-enumerate to get fresh handles (fixes stale handle issue)
+      // Re-enumerate to get fresh handles (fixes stale handle issue)
+      // CameraManager handles restoring selection by name
       cameraManager_->enumerateCameras();
       
-      // 3. Find the camera again by name and get fresh device
-      if (!selectedCameraName.isEmpty()) {
-        for (int i = 0; i < cameraManager_->cameraNames().size(); ++i) {
-          if (cameraManager_->cameraNames()[i] == selectedCameraName) {
-            cameraManager_->setCurrentCameraIndex(i);
-            const CameraDevice* newSelection = cameraManager_->selectedCamera();
-            if (newSelection) {
-              freshDevice = newSelection->device;
-            }
-            break;
-          }
-        }
+      const CameraDevice* newSelection = cameraManager_->selectedCamera();
+      if (newSelection) {
+        freshDevice = newSelection->device;
       }
     }
     
@@ -269,3 +243,15 @@ void ConferenceController::setAudioMuted(bool muted) {
   }
 }
 
+void ConferenceController::onCameraSelectionChanged() {
+  // Hot-swap camera if we are connected and video is not muted
+  if (conference_ && !conference_->isVideoMuted() && cameraManager_) {
+    // Re-enumerate to get fresh device handles
+    cameraManager_->enumerateCameras();
+    
+    const CameraDevice* newSelection = cameraManager_->selectedCamera();
+    if (newSelection && newSelection->device) {
+      conference_->setCamera(newSelection->device);
+    }
+  }
+}
