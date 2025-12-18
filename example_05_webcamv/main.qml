@@ -25,5 +25,25 @@ ApplicationWindow {
             height: parent.height
         }
 
+        Rectangle {
+            id: controlsBackground
+            color: "#80000000" // Semi-transparent black
+            height: 60
+            width: parent.width
+            anchors.top: parent.top
+            
+            ComboBox {
+                id: cameraSelector
+                anchors.centerIn: parent
+                width: 300
+                
+                model: cameraManager.cameraNames
+                currentIndex: cameraManager.currentCameraIndex
+                
+                onActivated: (index) => {
+                    cameraManager.currentCameraIndex = index
+                }
+            }
+        }
     }
 }

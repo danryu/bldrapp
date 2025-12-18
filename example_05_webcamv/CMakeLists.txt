@@ -62,7 +62,11 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(GSTREAMER REQUIRED IMPORTED_TARGET gstreamer-full-1.0)
 
 # Source files
-set(SOURCES main.cpp)
+set(SOURCES 
+    main.cpp
+    camera_manager.cpp
+    camera_manager.h
+)
 set(RESOURCES webcamv.qrc)
 
 # Create executable
