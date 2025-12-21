@@ -41,6 +41,14 @@ set(ENV{PKG_CONFIG_PATH} "${PKG_CONFIG_PATH_STR}:$ENV{PKG_CONFIG_PATH}")
 # Find Qt6
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick)
 
+# Optional: enable Spix RPC server support (for automated UI tests)
+option(QNUJITSI_ENABLE_SPIX "Enable Spix RPC server for UI automation" ON)
+if (QNUJITSI_ENABLE_SPIX)
+  # Spix is built/installed by test/scripts/setup_test_env.sh into test/deps/install
+  # or can be provided via the user's CMAKE_PREFIX_PATH.
+  find_package(Spix REQUIRED)
+endif()
+
 # Debug: Print PKG_CONFIG_PATH right before pkg_check_modules
 message(STATUS "About to run pkg_check_modules with PKG_CONFIG_PATH:")
 message(STATUS "  $ENV{PKG_CONFIG_PATH}")
@@ -92,6 +100,11 @@ target_link_libraries(qnujitsi PRIVATE
     # include the libgstqml6.a library here to overcome missing symbols: qInitResources_resources(), _gst_plugin_qml6_register
     ${GINST_ABS}/lib/gstreamer-1.0/libgstqml6.a
 )
+
+if (QNUJITSI_ENABLE_SPIX)
+  target_link_libraries(qnujitsi PRIVATE Spix::QtQuick)
+  target_compile_definitions(qnujitsi PRIVATE QNUJITSI_ENABLE_SPIX=1)
+endif()
 
 # # Information messages
 # message(STATUS "GStreamer installation: ${GINST}")

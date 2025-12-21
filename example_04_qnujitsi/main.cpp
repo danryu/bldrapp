@@ -21,6 +21,11 @@
 
 #include "src/conference_controller.h"
 
+#if defined(QNUJITSI_ENABLE_SPIX)
+#include <Spix/AnyRpcServer.h>
+#include <Spix/QtQmlBot.h>
+#endif
+
 // Forward declare static plugin initialization function
 extern "C" void gst_init_static_plugins(void);
 
@@ -55,6 +60,14 @@ int main(int argc, char* argv[]) {
   QQmlApplicationEngine engine;
   engine.load(QUrl(QStringLiteral("qrc:/qml/main.qml")));
   if (engine.rootObjects().isEmpty()) return 1;
+
+#if defined(QNUJITSI_ENABLE_SPIX)
+  // Start Spix RPC server for UI automation (default port is 9000).
+  // See Spix README: https://github.com/faaxm/spix
+  spix::AnyRpcServer server;
+  auto bot = new spix::QtQmlBot();
+  bot->runTestServer(server);
+#endif
 
   int ret = app.exec();
 

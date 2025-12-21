@@ -1,0 +1,46 @@
+{
+  "description": "gst-meet participant configuration for qnujitsi automated testing",
+  "defaults": {
+    "server": "localhost:30443",
+    "room": "testroom",
+    "video": {
+      "width": 640,
+      "height": 480,
+      "framerate": 30,
+      "pattern": "smpte"
+    },
+    "audio": {
+      "wave": "sine",
+      "frequency": 440,
+      "sampleRate": 48000,
+      "channels": 1
+    }
+  },
+  "participants": [
+    {
+      "name": "TestBot1",
+      "video": {
+        "pattern": "smpte"
+      },
+      "audio": {
+        "wave": "sine",
+        "frequency": 440
+      }
+    },
+    {
+      "name": "TestBot2",
+      "video": {
+        "pattern": "ball"
+      },
+      "audio": {
+        "wave": "sine",
+        "frequency": 880
+      }
+    }
+  ],
+  "notes": [
+    "Video patterns: smpte, snow, black, white, red, green, blue, checkers-1..8, ball, circular, blink, zone-plate",
+    "Audio waves: sine, square, saw, triangle, silence, white-noise, pink-noise",
+    "Different patterns/frequencies help distinguish participants visually/audibly during testing"
+  ]
+}

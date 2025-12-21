@@ -1,0 +1,16 @@
+# Build artifacts
+spix/build/
+
+# Local dependencies
+deps/
+
+# Docker volumes
+docker/config/
+docker/web/
+docker/transcripts/
+
+# OS files
+.DS_Store
+*.swp
+*.swo
+*~
