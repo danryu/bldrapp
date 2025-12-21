@@ -21,3 +21,4 @@ example_02_qmlsink/build/
 example_03_qjsink/build/
 example_04_qnujitsi/build/
 example_05_webcamv/build/
+gstreamer_static_*
