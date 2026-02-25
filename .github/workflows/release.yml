@@ -18,6 +18,14 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          repository: kormix-io/kormix-app
+          token: ${{ secrets.KORMIX_GH_ACCESS_TOKEN }}
+          submodules: recursive
+          fetch-depth: 1 # Fetch depth 1 is usually fine unless full history needed for versioning
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.KORMIX_GH_ACCESS_TOKEN }}
 
       - name: Determine Version
         id: version_info
