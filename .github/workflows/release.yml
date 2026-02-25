@@ -1,0 +1,1008 @@
+name: 02 - Build kromx
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*' # Trigger on version tags like v1.0, v2.3.4
+
+permissions:
+  contents: write  # Required for creating releases
+
+jobs:
+  determine_version:
+    runs-on: ubuntu-latest
+    outputs:
+      version_for_build: ${{ steps.version_info.outputs.version_for_build }}
+      is_prerelease: ${{ steps.version_info.outputs.is_prerelease }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Determine Version
+        id: version_info
+        shell: bash
+        run: |
+          # Extract version from CMakeLists.txt project() line
+          VERSION_FROM_CMAKE=$(grep -E '^project\(' CMakeLists.txt | sed -n 's/.*VERSION \([0-9]*\.[0-9]*\.[0-9]*\).*/\1/p')
+          if [ -z "$VERSION_FROM_CMAKE" ]; then
+            echo "::error::Could not extract version from CMakeLists.txt project() line"
+            echo "::error::Expected format: project(Kormix VERSION x.y.z LANGUAGES ...)"
+            exit 1
+          fi
+          echo "::notice::Extracted version from CMakeLists.txt: ${VERSION_FROM_CMAKE}"
+          echo "version_for_build=${VERSION_FROM_CMAKE}" >> $GITHUB_OUTPUT
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+          else
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+          fi
+
+# Note: JUCE is now built directly in this workflow instead of using build-juce.yml
+
+  build:
+    name: Build on ${{ matrix.os }}
+    needs: determine_version
+    runs-on: ${{ matrix.runner || matrix.os }}
+    timeout-minutes: 60  # Reduced timeout with JUCE caching
+    # No job-level env for RAW_RELEASE_TAG needed here, will be determined in a step
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14-arm64, macos-14-x64, windows-2022] # ios-15 ubuntu-22.04-arm64
+        include:
+          - os: macos-14-arm64
+            runner: macos-14
+            asset_name_suffix: pkg-arm64 # Apple Silicon
+            asset_content_type: application/octet-stream
+            output_name: Kormix.app # CMake output name
+            juce_install_dir: /Users/runner/JUCELIB
+            qt_archive_suffix: macOS-arm64
+            artifact_upload_path: build/kormix_artefacts # create-dmg outputs here
+            cmake_osx_architectures: arm64
+            qt_cmake_osx_architectures: arm64
+            installer_suffix: arm64
+          - os: macos-14-x64
+            runner: macos-14-large
+            asset_name_suffix: pkg-x86_64 # Intel
+            asset_content_type: application/octet-stream
+            output_name: Kormix.app # CMake output name
+            juce_install_dir: /Users/runner/JUCELIB
+            qt_archive_suffix: macOS-x86_64
+            artifact_upload_path: build/kormix_artefacts # create-dmg outputs here
+            cmake_osx_architectures: "x86_64"
+            qt_cmake_osx_architectures: "x86_64;x86_64h"
+            installer_suffix: x86_64
+          # - os: ios-15
+          #   runner: macos-14
+          #   asset_name_suffix: ipa-arm64 # iOS App Store package
+          #   asset_content_type: application/octet-stream
+          #   output_name: Kormix.app # CMake output name
+          #   juce_install_dir: /Users/runner/JUCELIB
+          #   qt_archive_suffix: iOS-arm64
+          #   artifact_upload_path: build/kormix_artefacts # iOS build outputs here
+          #   cmake_system_name: iOS
+          #   cmake_osx_architectures: arm64
+          #   cmake_osx_deployment_target: "15.0"
+          #   installer_suffix: ios            
+          - os: windows-2022
+            asset_name_suffix: exe # Changed from windows.exe
+            asset_content_type: application/vnd.microsoft.portable-executable
+            output_name: Kormix.exe # CMake output name
+            juce_install_dir: C:/JUCELIB
+            qt_archive_suffix: Windows
+            artifact_upload_path: build/kormix_artefacts # InnoSetup outputs here
+          # - os: ubuntu-22.04
+          #   runner: ubuntu-22.04
+          #   asset_name_suffix: tgz-x64
+          #   asset_content_type: application/gzip
+          #   output_name: Kormix # CMake output name
+          #   juce_install_dir: /home/runner/JUCELIB
+          #   qt_archive_suffix: Linux-x64
+          #   artifact_upload_path: build # build outputs here
+          # - os: ubuntu-22.04-arm64
+          #   runner: ubuntu-22.04-arm
+          #   asset_name_suffix: flatpak-arm64
+          #   asset_content_type: application/vnd.flatpak
+          #   output_name: Kormix # CMake output name
+          #   juce_install_dir: /home/runner/JUCELIB
+          #   qt_archive_suffix: Linux-arm64
+          #   artifact_upload_path: build # Flatpak outputs here
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          repository: kormix-io/kormix-app
+          token: ${{ secrets.KORMIX_GH_ACCESS_TOKEN }}
+          submodules: recursive
+          fetch-depth: 1 # Fetch depth 1 is usually fine unless full history needed for versioning
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.KORMIX_GH_ACCESS_TOKEN }}
+
+      # The STRIPPED_RELEASE_VERSION step is replaced by the outputs of 'Determine Version'
+
+      #########################################################################################
+      # macOS BUILD STEPS
+      # build JUCE → install Qt → configure → build → sign/package → upload
+      #########################################################################################
+
+      # Cache JUCE installation
+      - name: Cache JUCE (macOS)
+        if: contains(matrix.os, 'macos')
+        id: cache-juce-macos
+        uses: actions/cache@v4
+        with:
+          path: ${{ matrix.juce_install_dir }}
+          key: juce-8.0.4-macos-${{ matrix.cmake_osx_architectures }}-v1
+
+      - name: JUCE Cache Status (macOS)
+        if: contains(matrix.os, 'macos')
+        run: |
+          if [ "${{ steps.cache-juce-macos.outputs.cache-hit }}" == "true" ]; then
+            echo "✅ JUCE loaded from cache - build will be faster!"
+          else
+            echo "🔨 JUCE cache miss - building from source with ccache acceleration"
+          fi
+
+      # Setup ccache for faster builds when cache miss
+      - name: Setup ccache (macOS)
+        if: contains(matrix.os, 'macos') && steps.cache-juce-macos.outputs.cache-hit != 'true'
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: juce-macos-${{ matrix.cmake_osx_architectures }}
+          max-size: 2G
+
+      # Clone and build JUCE (only if not cached)
+      - name: Clone JUCE (macOS)
+        if: contains(matrix.os, 'macos') && steps.cache-juce-macos.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch 8.0.4 https://github.com/juce-framework/JUCE.git
+          cd JUCE
+          git submodule update --init --recursive
+
+      - name: Configure and Build JUCE (macOS)
+        if: contains(matrix.os, 'macos') && steps.cache-juce-macos.outputs.cache-hit != 'true'
+        run: |
+          cd JUCE
+          
+          # Configure with explicit settings and ccache
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="${{ matrix.juce_install_dir }}" \
+            -DCMAKE_OSX_ARCHITECTURES="${{ matrix.cmake_osx_architectures }}" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=11 \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DJUCE_BUILD_EXAMPLES=OFF \
+            -DJUCE_BUILD_EXTRAS=OFF \
+            -DJUCE_ENABLE_MODULE_SOURCE_GROUPS=ON \
+            -DJUCE_DISPLAY_SPLASH_SCREEN=OFF \
+            -DJUCE_REPORT_APP_USAGE=OFF \
+            -DJUCE_STRICT_REFCOUNTEDPOINTER=ON
+          
+          # Build with verbose output for debugging
+          cmake --build build --config Release --target install -j $(sysctl -n hw.ncpu) --verbose
+
+      # Download and setup Qt
+      - name: Download Qt (macOS)
+        if: contains(matrix.os, 'macos')
+        uses: robinraju/release-downloader@v1
+        with:
+          tag: qt-static-rel4
+          repository: kormix-io/kormix-app
+          token: ${{ secrets.KORMIX_GH_ACCESS_TOKEN }}
+          fileName: qt6*-static-${{ matrix.qt_archive_suffix }}.zip
+          out-file-path: qt
+          extract: false
+
+      - name: Extract Qt (macOS)
+        if: contains(matrix.os, 'macos')
+        run: |
+          mkdir -p "${{ github.workspace }}/qt6-static-build"
+          echo "Extracting Qt archive..."
+          # List available files to debug
+          echo "Available Qt files:"
+          ls -la qt/
+          # Extract the actual downloaded file
+          ditto -x -k -v qt/qt6*.zip "${{ github.workspace }}/qt6-static-build"
+          echo "Verifying Qt installation..."
+          ls -la "${{ github.workspace }}/qt6-static-build"
+          echo "Checking for Qt6BundledZLIB..."
+          find "${{ github.workspace }}/qt6-static-build" -name "*ZLIB*" -type f
+          echo "Listing available Qt modules..."
+          find "${{ github.workspace }}/qt6-static-build" -name "Qt6*Config.cmake" -type f
+
+      - name: Select Xcode (macOS)
+        if: contains(matrix.os, 'macos')
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: ${{ contains(matrix.os, 'macos-14') && '16.2' || '15.2' }}
+
+      - name: Install create-dmg (macOS)
+        if: contains(matrix.os, 'macos')
+        run: brew install create-dmg
+
+      - name: Configure CMake (macOS)
+        if: contains(matrix.os, 'macos')
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES="${{ matrix.qt_cmake_osx_architectures }}" \
+            -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/install_dir" \
+            -DKORMIX_VERSION=${{ needs.determine_version.outputs.version_for_build }} \
+            -DCMAKE_PREFIX_PATH="${{ github.workspace }}/qt6-static-build/qt6-static-build;${{ matrix.juce_install_dir }}"
+
+      - name: Build (macOS)
+        if: contains(matrix.os, 'macos')
+        run: |
+          echo "--- Building Kormix.app (expected at build/kormix_artefacts/Release/Standalone/${{ matrix.output_name }}) ---"
+          cmake --build build --config Release
+          echo "--- Finished building Kormix.app ---"
+
+      - name: Import Code Signing Certificate (macOS)
+        if: contains(matrix.os, 'macos')
+        uses: apple-actions/import-codesign-certs@v2
+        with:
+          p12-file-base64: ${{ secrets.MACOS_CERTIFICATE_B64 }}
+          p12-password: ${{ secrets.MACOS_CERTIFICATE_PWD }}
+          keychain: app_signing
+
+      - name: Code Sign Application (macOS)
+        if: contains(matrix.os, 'macos')
+        run: |
+          echo "Signing Kormix.app"
+          codesign --force --deep --strict --options=runtime --entitlements "${{ github.workspace }}/setup/macos/macOS.entitlements" -s "${{ secrets.APPLE_SIGNING_IDENTITY }}" "build/kormix_artefacts/Release/Standalone/${{ matrix.output_name }}"
+          echo "Verifying signature..."
+          codesign --verify --deep --strict --verbose=4 "build/kormix_artefacts/Release/Standalone/${{ matrix.output_name }}"
+          spctl --assess --verbose=4 --type execute "build/kormix_artefacts/Release/Standalone/${{ matrix.output_name }}" || echo "spctl assessment may fail if not notarized, this is expected at this stage."
+
+          echo "Signing Kormix.component"
+          codesign --force --deep --strict --options=runtime --entitlements "${{ github.workspace }}/setup/macos/macOS.entitlements" -s "${{ secrets.APPLE_SIGNING_IDENTITY }}" "build/kormix_artefacts/Release/AU/Kormix.component"
+          echo "Verifying component signature..."
+          codesign --verify --deep --strict --verbose=4 "build/kormix_artefacts/Release/AU/Kormix.component"
+          spctl --assess --verbose=4 --type execute "build/kormix_artefacts/Release/AU/Kormix.component" || echo "spctl assessment may fail if not notarized, this is expected at this stage."
+
+      - name: Import Installer Code Signing Certificate (macOS)
+        if: contains(matrix.os, 'macos')
+        uses: apple-actions/import-codesign-certs@v2
+        with:
+          p12-file-base64: ${{ secrets.MACOS_INSTALLER_CERTIFICATE_B64 }}
+          p12-password: ${{ secrets.MACOS_INSTALLER_CERTIFICATE_PWD }}
+          keychain: installer_signing
+
+      - name: Create PKG Installer (macOS)
+        if: contains(matrix.os, 'macos')
+        run: |
+          chmod +x setup/macos/make_installer.sh
+          # This step requires the 'Developer ID Installer' certificate imported above.
+          ./setup/macos/make_installer.sh \
+            "${{ needs.determine_version.outputs.version_for_build }}" \
+            "${{ secrets.APPLE_INSTALLER_SIGNING_IDENTITY }}" \
+            "${{ matrix.installer_suffix }}"
+
+      - name: Check Runner Date Before Notarization (macOS)
+        if: contains(matrix.os, 'macos')
+        run: |
+          echo "Current UTC date on runner is: $(date -u)"
+
+      - name: Notarize PKG (macOS)
+        if: contains(matrix.os, 'macos')
+        env:
+          APPLE_ID_USERNAME: ${{ secrets.APPLE_ID_USERNAME }}
+          APPLE_ID_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_ID_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          PKG_PATH="${{ matrix.artifact_upload_path }}/Kormix-${{ needs.determine_version.outputs.version_for_build }}-${{ matrix.installer_suffix }}-Setup.pkg"
+          echo "PKG path for notarization is: $PKG_PATH"
+          if [ ! -f "$PKG_PATH" ]; then
+            echo "ERROR: PKG file not found at $PKG_PATH"
+            exit 1
+          fi
+          ls -l "$PKG_PATH"
+
+          echo "Submitting $PKG_PATH for notarization and waiting for completion..."
+          xcrun notarytool submit "$PKG_PATH" \
+            --apple-id "$APPLE_ID_USERNAME" \
+            --password "$APPLE_ID_APP_SPECIFIC_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+
+          echo "Notarization process finished. Check output above for status."
+
+      - name: Staple Notarization Ticket (macOS)
+        if: contains(matrix.os, 'macos')
+        run: |
+          PKG_PATH="${{ matrix.artifact_upload_path }}/Kormix-${{ needs.determine_version.outputs.version_for_build }}-${{ matrix.installer_suffix }}-Setup.pkg"
+          echo "Stapling notarization ticket to $PKG_PATH..."
+          xcrun stapler staple "$PKG_PATH"
+          echo "Stapling complete for $PKG_PATH."
+
+      - name: Upload Artifact - macOS
+        if: contains(matrix.os, 'macos')
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-installer-${{ matrix.installer_suffix }}
+          path: ${{ matrix.artifact_upload_path }}/Kormix-${{ needs.determine_version.outputs.version_for_build }}-${{ matrix.installer_suffix }}-Setup.pkg
+
+      #########################################################################################
+      # iOS BUILD STEPS
+      # build JUCE → configure → build → sign/package → upload
+      #########################################################################################
+
+      # Cache JUCE installation (same as macOS)
+      - name: Cache JUCE (iOS)
+        if: contains(matrix.os, 'ios')
+        id: cache-juce-ios
+        uses: actions/cache@v4
+        with:
+          path: ${{ matrix.juce_install_dir }}
+          key: juce-8.0.4-ios-arm64-v1
+
+      - name: JUCE Cache Status (iOS)
+        if: contains(matrix.os, 'ios')
+        run: |
+          if [ "${{ steps.cache-juce-ios.outputs.cache-hit }}" == "true" ]; then
+            echo "✅ JUCE loaded from cache - build will be faster!"
+          else
+            echo "🔨 JUCE cache miss - building from source with ccache acceleration"
+          fi
+
+      # Setup ccache for faster builds when cache miss
+      - name: Setup ccache (iOS)
+        if: contains(matrix.os, 'ios') && steps.cache-juce-ios.outputs.cache-hit != 'true'
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: juce-ios-arm64
+          max-size: 2G
+
+      # Clone and build JUCE (only if not cached)
+      - name: Clone JUCE (iOS)
+        if: contains(matrix.os, 'ios') && steps.cache-juce-ios.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch 8.0.4 https://github.com/juce-framework/JUCE.git
+          cd JUCE
+          git submodule update --init --recursive
+
+      - name: Configure and Build JUCE (iOS)
+        if: contains(matrix.os, 'ios') && steps.cache-juce-ios.outputs.cache-hit != 'true'
+        run: |
+          cd JUCE
+          
+          # Configure JUCE for iOS using Xcode generator (recommended by JUCE docs)
+          cmake -B build-ios \
+            -GXcode \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="${{ matrix.cmake_osx_deployment_target }}" \
+            -DCMAKE_INSTALL_PREFIX="${{ matrix.juce_install_dir }}" \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY="${{ secrets.APPLE_SIGNING_IDENTITY }}" \
+            -DCMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM="${{ secrets.APPLE_TEAM_ID }}" \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DJUCE_BUILD_EXAMPLES=OFF \
+            -DJUCE_BUILD_EXTRAS=OFF \
+            -DJUCE_ENABLE_MODULE_SOURCE_GROUPS=ON \
+            -DJUCE_DISPLAY_SPLASH_SCREEN=OFF \
+            -DJUCE_REPORT_APP_USAGE=OFF \
+            -DJUCE_STRICT_REFCOUNTEDPOINTER=ON
+          
+          # Build using Xcode with proper iOS device settings
+          cmake --build build-ios --config Release --target install -- -allowProvisioningUpdates
+
+      # Install Qt for iOS
+      - name: Install Qt (iOS)
+        if: contains(matrix.os, 'ios')
+        uses: jurplel/install-qt-action@v3
+        with:
+          aqtversion: '==3.1.*'
+          version: '6.5.3'
+          host: 'mac'
+          target: 'ios'
+          arch: 'ios'
+          modules: 'qtmultimedia qtwebchannel qtwebsockets qtwebview qtshadertools'
+
+      - name: Select Xcode (iOS)
+        if: contains(matrix.os, 'ios')
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '16.2'
+
+      - name: Configure CMake (iOS)
+        if: contains(matrix.os, 'ios')
+        run: |
+          # Configure Kormix for iOS using Xcode generator (required for iOS builds per JUCE docs)
+          cmake -S . -B build-ios \
+            -GXcode \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=${{ matrix.cmake_osx_deployment_target }} \
+            -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/install_dir" \
+            -DKORMIX_VERSION=${{ needs.determine_version.outputs.version_for_build }} \
+            -DCMAKE_PREFIX_PATH="${{ matrix.juce_install_dir }}" \
+            -DCMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM="${{ secrets.APPLE_TEAM_ID }}" \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY="${{ secrets.APPLE_SIGNING_IDENTITY }}"
+
+      - name: Build (iOS)
+        if: contains(matrix.os, 'ios')
+        run: |
+          echo "--- Building Kormix iOS app ---"
+          # Build for iOS device with proper provisioning and signing
+          cmake --build build-ios --config Release -- -allowProvisioningUpdates
+          echo "--- Finished building Kormix iOS app ---"
+
+      - name: Import Code Signing Certificate (iOS)
+        if: contains(matrix.os, 'ios')
+        uses: apple-actions/import-codesign-certs@v2
+        with:
+          p12-file-base64: ${{ secrets.MACOS_CERTIFICATE_B64 }}
+          p12-password: ${{ secrets.MACOS_CERTIFICATE_PWD }}
+          keychain: app_signing
+
+      - name: Import Provisioning Profile (iOS)
+        if: contains(matrix.os, 'ios')
+        run: |
+          echo "${{ secrets.IOS_PROVISIONING_PROFILE }}" | base64 --decode > kormix.mobileprovision
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          cp kormix.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
+
+      - name: Code Sign iOS Application
+        if: contains(matrix.os, 'ios')
+        run: |
+          echo "Signing Kormix iOS app"
+          # Find the built iOS app in the Xcode build directory
+          IOS_APP_PATH=$(find build-ios -name "${{ matrix.output_name }}" -path "*/Release-iphoneos/*" | head -1)
+          echo "Found iOS app at: $IOS_APP_PATH"
+          codesign --force --deep --strict --options=runtime --entitlements "${{ github.workspace }}/setup/ios/iOS.entitlements" -s "${{ secrets.APPLE_SIGNING_IDENTITY }}" "$IOS_APP_PATH"
+          echo "Verifying signature..."
+          codesign --verify --deep --strict --verbose=4 "$IOS_APP_PATH"
+
+      - name: Create IPA Package (iOS)
+        if: contains(matrix.os, 'ios')
+        run: |
+          # Find the built iOS app in the Xcode build directory
+          IOS_APP_PATH=$(find build-ios -name "${{ matrix.output_name }}" -path "*/Release-iphoneos/*" | head -1)
+          echo "Creating IPA from: $IOS_APP_PATH"
+          
+          # Create Payload directory for IPA
+          mkdir -p Payload
+          cp -r "$IOS_APP_PATH" Payload/
+          
+          # Create IPA file
+          zip -r "Kormix-${{ needs.determine_version.outputs.version_for_build }}-${{ matrix.installer_suffix }}.ipa" Payload
+          
+          # Ensure artifact upload path exists and move IPA there
+          mkdir -p "${{ matrix.artifact_upload_path }}"
+          mv "Kormix-${{ needs.determine_version.outputs.version_for_build }}-${{ matrix.installer_suffix }}.ipa" "${{ matrix.artifact_upload_path }}/"
+
+      - name: Upload Artifact - iOS
+        if: contains(matrix.os, 'ios')
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-app-${{ matrix.installer_suffix }}
+          path: ${{ matrix.artifact_upload_path }}/Kormix-${{ needs.determine_version.outputs.version_for_build }}-${{ matrix.installer_suffix }}.ipa
+
+      #########################################################################################
+      # WINDOWS BUILD STEPS  
+      # build JUCE → install Qt/ASIO/WebView2 → configure → build → sign/package → upload
+      #########################################################################################
+
+      # Cache JUCE installation
+      - name: Cache JUCE (Windows)
+        if: matrix.os == 'windows-2022'
+        id: cache-juce-windows
+        uses: actions/cache@v4
+        with:
+          path: ${{ matrix.juce_install_dir }}
+          key: juce-8.0.4-windows-x64-v1
+
+      - name: JUCE Cache Status (Windows)
+        if: matrix.os == 'windows-2022'
+        shell: pwsh
+        run: |
+          if ("${{ steps.cache-juce-windows.outputs.cache-hit }}" -eq "true") {
+            Write-Output "✅ JUCE loaded from cache - build will be faster!"
+          } else {
+            Write-Output "🔨 JUCE cache miss - building from source with sccache acceleration"
+          }
+
+      # Setup ccache for faster builds when cache miss
+      - name: Setup ccache (Windows)
+        if: matrix.os == 'windows-2022' && steps.cache-juce-windows.outputs.cache-hit != 'true'
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: juce-windows-x64
+          max-size: 2G
+          variant: sccache
+
+      # Clone and build JUCE (only if not cached)
+      - name: Clone JUCE (Windows)
+        if: matrix.os == 'windows-2022' && steps.cache-juce-windows.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch 8.0.4 https://github.com/juce-framework/JUCE.git
+          cd JUCE
+          git submodule update --init --recursive
+
+      - name: Configure and Build JUCE (Windows)
+        if: matrix.os == 'windows-2022' && steps.cache-juce-windows.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          cd JUCE
+          cmake -B build `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_INSTALL_PREFIX="${{ matrix.juce_install_dir }}" `
+            -DCMAKE_C_COMPILER_LAUNCHER=sccache `
+            -DCMAKE_CXX_COMPILER_LAUNCHER=sccache `
+            -DJUCE_BUILD_EXAMPLES=OFF `
+            -DJUCE_BUILD_EXTRAS=OFF `
+            -DJUCE_ENABLE_MODULE_SOURCE_GROUPS=ON `
+            -DJUCE_DISPLAY_SPLASH_SCREEN=OFF `
+            -DJUCE_REPORT_APP_USAGE=OFF `
+            -DJUCE_STRICT_REFCOUNTEDPOINTER=ON
+          cmake --build build --config Release --target install -j $env:NUMBER_OF_PROCESSORS
+
+      - name: Download ASIO SDK (Windows)
+        if: matrix.os == 'windows-2022'
+        shell: pwsh
+        run: |
+          $ProgressPreference = 'SilentlyContinue'
+          Invoke-WebRequest -Uri "https://download.steinberg.net/sdk_downloads/asiosdk_2.3.3_2019-06-14.zip" -OutFile "asio.zip"
+          Expand-Archive -Path "asio.zip" -DestinationPath "asio_sdk"
+          # List contents to debug
+          Get-ChildItem -Path "asio_sdk" -Recurse
+          # Create destination directory
+          New-Item -ItemType Directory -Force -Path "C:/asio_sdk"
+          # Find the actual ASIO SDK directory name
+          $asioDir = Get-ChildItem -Path "asio_sdk" -Directory | Select-Object -First 1
+          if ($asioDir) {
+              Move-Item -Path $asioDir.FullName -Destination "C:/asio_sdk" -Force
+          } else {
+              Write-Error "Could not find ASIO SDK directory in extracted files"
+              exit 1
+          }
+
+      # Download and setup Qt
+      - name: Download Qt (Windows)
+        if: matrix.os == 'windows-2022'
+        uses: robinraju/release-downloader@v1
+        with:
+          tag: qt-static-rel4
+          repository: kormix-io/kormix-app
+          token: ${{ secrets.KORMIX_GH_ACCESS_TOKEN }}
+          fileName: qt6*-static-${{ matrix.qt_archive_suffix }}.zip
+          out-file-path: qt
+          extract: false
+
+      - name: Extract Qt (Windows)
+        if: matrix.os == 'windows-2022'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "${{ github.workspace }}/qt6-static-build"
+          # List available files to debug
+          echo "Available Qt files:"
+          Get-ChildItem qt/
+          # Extract the actual downloaded file
+          Expand-Archive -Path qt/qt6*.zip -DestinationPath "${{ github.workspace }}" -Force
+
+      - name: Install WebView2 SDK (Windows)
+        if: matrix.os == 'windows-2022'
+        shell: cmd
+        run: |
+          echo Installing WebView2 SDK using NuGet...
+          nuget install Microsoft.Web.WebView2 -Version 1.0.3351.48 -OutputDirectory C:\packages
+          
+          echo Setting WEBVIEW2_SDK_ROOT environment variable...
+          set PKG_ROOT=C:\packages\Microsoft.Web.WebView2.1.0.3351.48
+          echo WEBVIEW2_SDK_ROOT=%PKG_ROOT%>> %GITHUB_ENV%
+
+      - name: Configure CMake (Windows)
+        if: matrix.os == 'windows-2022'
+        shell: bash
+        run: |
+          WINDOWS_SDK_VERSION_GUESS="10.0.22621.0"
+          CMAKE_EXTRA_PREFIX_PATHS="C:/Program Files (x86)/Windows Kits/10/Lib/${WINDOWS_SDK_VERSION_GUESS}/um/x64;C:/Program Files (x86)/Windows Kits/10/Include/${WINDOWS_SDK_VERSION_GUESS}/um"
+          echo "Will add to CMAKE_PREFIX_PATH: ${CMAKE_EXTRA_PREFIX_PATHS}"
+          echo "WEBVIEW2_SDK_ROOT: $WEBVIEW2_SDK_ROOT"
+          echo "ASIO SDK directory: C:/asio_sdk/asiosdk_2.3.3_2019-06-14"
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/install_dir" \
+            -DKORMIX_VERSION=${{ needs.determine_version.outputs.version_for_build }} \
+            -DCMAKE_PREFIX_PATH="${{ github.workspace }}/qt6-static-build;${{ matrix.juce_install_dir }};${CMAKE_EXTRA_PREFIX_PATHS}" \
+            -DCMAKE_CXX_FLAGS="-IC:/asio_sdk/asiosdk_2.3.3_2019-06-14/common"
+
+      - name: Build and Install (Windows)
+        if: matrix.os == 'windows-2022'
+        shell: pwsh
+        run: |
+          cmake --build build --config Release --target kormix_Standalone
+          
+          # Build VST3 with timeout to avoid hanging on moduleinfo.json creation
+          echo "Building VST3 target with timeout..."
+          $job = Start-Job -ScriptBlock {
+            cmake --build build --config Release --target kormix_VST3
+          }
+          
+          # Wait for 5 minutes max, then kill if still running
+          if (Wait-Job $job -Timeout 300) {
+            Receive-Job $job
+            Remove-Job $job
+            echo "VST3 build completed successfully"
+          } else {
+            echo "VST3 build timed out, stopping job..."
+            Stop-Job $job
+            Remove-Job $job -Force
+            echo "VST3 build was terminated due to timeout"
+          }
+          
+          # Check if the main VST3 file exists
+          $vst3File = "build/kormix_artefacts/Release/VST3/Kormix.vst3/Contents/x86_64-win/Kormix.vst3"
+          if (Test-Path $vst3File) {
+            echo "SUCCESS: VST3 plugin file found at $vst3File"
+          } else {
+            echo "ERROR: VST3 plugin file not found at $vst3File"
+            echo "Listing VST3 build directory contents:"
+            if (Test-Path "build/kormix_artefacts/Release/VST3") {
+              Get-ChildItem -Recurse "build/kormix_artefacts/Release/VST3"
+            } else {
+              echo "VST3 build directory does not exist"
+            }
+            exit 1
+          }
+
+      - name: Sign Raw Windows Executable
+        if: matrix.os == 'windows-2022'
+        uses: sslcom/esigner-codesign@develop
+        with:
+          command: sign
+          username: ${{ secrets.SSLCOM_ES_USERNAME }}
+          password: ${{ secrets.SSLCOM_ES_PASSWORD }}
+          # credential_id: ${{ secrets.SSLCOM_CREDENTIAL_ID }}
+          totp_secret: ${{ secrets.SSLCOM_ES_TOTP_SECRET }}
+          file_path: ${{ github.workspace }}/build/kormix_artefacts/Release/Standalone/${{ matrix.output_name }}
+          override: true
+          # output_path is not specified, so it signs in-place by default (override: true would be needed if it didn't)
+          # malware_block: false # This option might be available, check new action's README if needed
+          # environment_name: PROD # This option might be available, check new action's README if needed
+
+      # - name: Sign VST3 Plugin - Not working, CodeSignTool does not support .vst3 files
+      #   if: matrix.os == 'windows-2022'
+      #   uses: sslcom/esigner-codesign@develop
+      #   with:
+      #     command: sign
+      #     username: ${{ secrets.SSLCOM_ES_USERNAME }}
+      #     password: ${{ secrets.SSLCOM_ES_PASSWORD }}
+      #     # credential_id: ${{ secrets.SSLCOM_CREDENTIAL_ID }} # Assuming same credential ID applies or is not needed
+      #     totp_secret: ${{ secrets.SSLCOM_ES_TOTP_SECRET }}
+      #     file_path: ${{ github.workspace }}/build/kormix_artefacts/Release/VST3/Kormix.vst3\Contents\x86_64-win\Kormix.vst3
+      #     override: true # Sign in-place
+
+      - name: Create EXE with Inno Setup (Windows)
+        if: matrix.os == 'windows-2022'
+        uses: Minionguyjpro/Inno-Setup-Action@v1.2.5
+        with:
+          path: setup/windows/kormix.iss
+          options: /O"${{ matrix.artifact_upload_path }}" /F"Kormix-${{ needs.determine_version.outputs.version_for_build }}-Setup" /DKORMIX_VERSION=${{ needs.determine_version.outputs.version_for_build }} /DAppSourceDir="${{ github.workspace }}/build/kormix_artefacts/Release/Standalone"
+
+      - name: Sign Windows Installer
+        if: matrix.os == 'windows-2022'
+        uses: sslcom/esigner-codesign@develop
+        env:
+          SIGNED_OUTPUT_DIR: ${{ github.workspace }}/signed_installer_exe
+        with:
+          command: sign
+          username: ${{ secrets.SSLCOM_ES_USERNAME }}
+          password: ${{ secrets.SSLCOM_ES_PASSWORD }}
+          # credential_id: ${{ secrets.SSLCOM_CREDENTIAL_ID }}
+          totp_secret: ${{ secrets.SSLCOM_ES_TOTP_SECRET }}
+          file_path: ${{ matrix.artifact_upload_path }}/Kormix-${{ needs.determine_version.outputs.version_for_build }}-Setup.exe
+          output_path: ${{ env.SIGNED_OUTPUT_DIR }}
+          # malware_block: false # This option might be available, check new action's README if needed
+          # environment_name: PROD # This option might be available, check new action's README if needed
+
+      - name: Upload Artifact - Windows
+        if: matrix.os == 'windows-2022'
+        env:
+          SIGNED_OUTPUT_DIR: ${{ github.workspace }}/signed_installer_exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: ${{ env.SIGNED_OUTPUT_DIR }}/Kormix-${{ needs.determine_version.outputs.version_for_build }}-Setup.exe
+
+      #########################################################################################
+      # LINUX BUILD STEPS
+      # build JUCE → install Qt/system libs → configure → build → package (Flatpak) → upload
+      #########################################################################################
+
+      # Cache JUCE installation
+      - name: Cache JUCE (Linux)
+        if: contains(matrix.os, 'ubuntu-22.04')
+        id: cache-juce-linux
+        uses: actions/cache@v4
+        with:
+          path: ${{ matrix.juce_install_dir }}
+          key: juce-8.0.4-linux-x64-v1
+
+      - name: JUCE Cache Status (Linux)
+        if: contains(matrix.os, 'ubuntu-22.04')
+        run: |
+          if [ "${{ steps.cache-juce-linux.outputs.cache-hit }}" == "true" ]; then
+            echo "✅ JUCE loaded from cache - build will be faster!"
+          else
+            echo "🔨 JUCE cache miss - building from source with ccache acceleration"
+          fi
+
+      # Install JUCE Dependencies (needed for both cache hit and miss)
+      - name: Install JUCE Dependencies (Linux)
+        if: contains(matrix.os, 'ubuntu-22.04')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libx11-dev libxext-dev libxrandr-dev libxcomposite-dev libxinerama-dev libxcursor-dev libfreetype6-dev libfontconfig1-dev
+
+      # Setup ccache for faster builds when cache miss
+      - name: Setup ccache (Linux)
+        if: contains(matrix.os, 'ubuntu-22.04') && steps.cache-juce-linux.outputs.cache-hit != 'true'
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: juce-linux-x64
+          max-size: 2G
+
+      # Clone and build JUCE (only if not cached)
+      - name: Clone JUCE (Linux)
+        if: contains(matrix.os, 'ubuntu-22.04') && steps.cache-juce-linux.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch 8.0.4 https://github.com/juce-framework/JUCE.git
+          cd JUCE
+          git submodule update --init --recursive
+
+      - name: Configure and Build JUCE (Linux)
+        if: contains(matrix.os, 'ubuntu-22.04') && steps.cache-juce-linux.outputs.cache-hit != 'true'
+        run: |
+          cd JUCE
+          # Configure with standard Linux settings and ccache
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="${{ matrix.juce_install_dir }}" \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DJUCE_BUILD_EXAMPLES=OFF \
+            -DJUCE_BUILD_EXTRAS=OFF \
+            -DJUCE_ENABLE_MODULE_SOURCE_GROUPS=ON \
+            -DJUCE_DISPLAY_SPLASH_SCREEN=OFF \
+            -DJUCE_REPORT_APP_USAGE=OFF \
+            -DJUCE_STRICT_REFCOUNTEDPOINTER=ON
+          
+          # Build with verbose output for debugging
+          cmake --build build --config Release --target install -j $(nproc) --verbose
+
+      # Install Qt 6.5.3 for Linux due to https://github.com/probonopd/linuxdeployqt/issues/592
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v3
+        with:
+          aqtversion: '==3.1.*'
+          version: '6.5.3'
+          host: 'linux'
+          target: 'desktop'
+          arch: 'gcc_64'
+          modules: 'qtmultimedia qtpositioning qtsensors qtserialbus qtserialport qtwebchannel qtwebengine qtwebsockets qtwebview qtshadertools'
+
+      # # Download and setup Qt
+      # - name: Download Qt (Linux)
+      #   if: contains(matrix.os, 'ubuntu-22.04')
+      #   uses: robinraju/release-downloader@v1
+      #   with:
+      #     tag: qt-static-rel4
+      #     fileName: qt6*-static-${{ matrix.qt_archive_suffix }}.zip
+      #     out-file-path: qt
+      #     extract: false
+
+      # - name: Extract Qt (Linux)
+      #   if: contains(matrix.os, 'ubuntu-22.04')
+      #   run: |
+      #     mkdir -p "${{ github.workspace }}/qt6-static-build"
+      #     echo "Extracting Qt archive..."
+      #     # List available files to debug
+      #     echo "Available Qt files:"
+      #     ls -la qt/
+      #     # Extract the actual downloaded file
+      #     unzip qt/qt6*.zip -d "${{ github.workspace }}"
+      #     echo "Verifying Qt installation..."
+      #     ls -la "${{ github.workspace }}/qt6-static-build"
+
+      # - name: Build static ICU (Linux only)
+      #   if: contains(matrix.os, 'ubuntu-22.04')
+      #   run: |
+      #     # Build the same ICU version that was used in Qt static build
+      #     # This provides the static libraries needed to resolve ICU symbols in Qt
+      #     git clone --depth 1 -b release-77-1 https://github.com/unicode-org/icu.git ~/icu
+      #     cd ~/icu/icu4c/source
+      #     mkdir build-static && cd build-static
+      #     # Add -fPIC to CFLAGS and CXXFLAGS for Position Independent Code (needed for VST3 shared library)
+      #     export CFLAGS="-fPIC"
+      #     export CXXFLAGS="-fPIC"
+      #     ../runConfigureICU Linux --enable-static --disable-shared --prefix=$HOME/icu-static
+      #     make -j$(nproc)
+      #     make install
+          
+      #     echo "ICU build complete. Libraries:"
+      #     ls -la $HOME/icu-static/lib/libicu*.a
+
+      # - name: Set ICU environment variables (Linux only)
+      #   if: contains(matrix.os, 'ubuntu-22.04')
+      #   run: |
+      #     echo "ICU_ROOT=$HOME/icu-static" >> $GITHUB_ENV
+      #     echo "ICU_LIBS=-L$HOME/icu-static/lib -licui18n -licuuc -licudata" >> $GITHUB_ENV
+      #     echo "ICU_CFLAGS=-I$HOME/icu-static/include" >> $GITHUB_ENV
+
+      - name: Install Dependencies (Linux)
+        if: contains(matrix.os, 'ubuntu-22.04')
+        run: |
+          #FIXME: install fuse2 for AppImage until we use go-appimage and avoid fuse nonsense
+          sudo add-apt-repository -y universe
+          sudo apt-get update
+          # sudo apt install libfuse2t64 # for Ubuntu 24.04
+          sudo apt install -y libfuse2
+          # Install deps for Linux/X11 and Qt
+          # sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            pkg-config \
+            libjack-jackd2-dev \
+            libfontconfig1-dev \
+            libfreetype-dev \
+            libgtk-3-dev \
+            libx11-dev \
+            libx11-xcb-dev \
+            libxcb-cursor-dev \
+            libxcb-glx0-dev \
+            libxcb-icccm4-dev \
+            libxcb-image0-dev \
+            libxcb-keysyms1-dev \
+            libxcb-randr0-dev \
+            libxcb-render-util0-dev \
+            libxcb-shape0-dev \
+            libxcb-shm0-dev \
+            libxcb-sync-dev \
+            libxcb-util-dev \
+            libxcb-xfixes0-dev \
+            libxcb-xkb-dev \
+            libxcb1-dev \
+            libxext-dev \
+            libxfixes-dev \
+            libxi-dev \
+            libxkbcommon-dev \
+            libxkbcommon-x11-dev \
+            libxrender-dev
+            
+
+      - name: Configure CMake (Linux)
+        if: contains(matrix.os, 'ubuntu-22.04')
+        run: |
+          # Add ICU_ROOT to CMAKE_PREFIX_PATH so CMake can find static ICU libraries
+          # export CMAKE_PREFIX_PATH="${ICU_ROOT}:${{ github.workspace }}/qt6-static-build:${{ matrix.juce_install_dir }}"
+          export CMAKE_PREFIX_PATH="${{ matrix.juce_install_dir }}"
+          echo "CMAKE_PREFIX_PATH: $CMAKE_PREFIX_PATH"
+          
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/install_dir" \
+            -DKORMIX_VERSION=${{ needs.determine_version.outputs.version_for_build }} \
+            -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH"
+
+      - name: Build Standalone Only (Linux)
+        if: contains(matrix.os, 'ubuntu-22.04')
+        run: |
+          cmake --build build --config Release --target kormix_Standalone
+
+      - name: Download and Setup linuxdeployqt (Linux)
+        if: contains(matrix.os, 'ubuntu-22.04')
+        run: |
+          # Download linuxdeployqt
+          wget -q https://github.com/probonopd/linuxdeployqt/releases/download/continuous/linuxdeployqt-continuous-x86_64.AppImage
+          chmod +x linuxdeployqt-continuous-x86_64.AppImage
+          
+          # Create AppDir structure
+          mkdir -p AppDir/usr/bin
+          mkdir -p AppDir/usr/share/applications
+          mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
+          mkdir -p AppDir/usr/share/icons/hicolor/48x48/apps
+          
+          # Copy application files
+          cp build/kormix_artefacts/Release/Standalone/Kormix AppDir/usr/bin/
+          cp setup/linux/kormix.desktop AppDir/usr/share/applications/
+
+          # Generate 256x256 and 48x48 versions of the logo using ImageMagick
+          convert setup/kormix_logo.png -resize 256x256 AppDir/usr/share/icons/hicolor/256x256/apps/kormix.png
+          convert setup/kormix_logo.png -resize 48x48 AppDir/usr/share/icons/hicolor/48x48/apps/kormix.png
+          # cp setup/kormix_logo.png AppDir/usr/share/icons/hicolor/256x256/apps/kormix.png
+          
+          export VERSION=${{ needs.determine_version.outputs.version_for_build }} 
+
+          # Run linuxdeployqt to gather Qt dependencies
+          export QMAKE=$Qt6_DIR/bin/qmake
+          ./linuxdeployqt-continuous-x86_64.AppImage AppDir/usr/share/applications/kormix.desktop \
+            -appimage \
+            -always-overwrite \
+            -bundle-non-qt-libs \
+            -qmldir=src/client/ \
+            -extra-plugins=platforms/,platformthemes/,xcbglintegrations/,webview/ \
+            -verbose=2
+          
+          echo "AppDir contents after linuxdeployqt:"
+          ls -la AppDir/usr/bin/
+          ls -la AppDir/usr/share/*
+          ls -la AppDir/usr/lib/ || true
+          ls -la AppDir/usr/plugins/ || true
+
+
+      - name: Upload Artifact - Linux
+        if: contains(matrix.os, 'ubuntu-22.04')
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-appimage-x64
+          path: Kormix-*-x86_64.AppImage
+
+  create_release:
+    name: Create GitHub Release
+    needs: [build, determine_version]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code # May not be strictly needed if just using github.ref, but good practice
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetches all history for all tags, useful if you need to generate changelog
+ 
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          # No pattern needed, downloads all artifacts from the run
+
+      - name: List downloaded artifacts (for debugging)
+        run: |
+          ls -R artifacts
+
+      - name: Create Release and Upload Assets
+        uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.KORMIX_GH_ACCESS_TOKEN }}
+        with:
+          repository: kormix-io/kormix-releases  # Public releases repository
+          tag_name: ${{ needs.determine_version.outputs.version_for_build }}
+          name: Kormix ${{ needs.determine_version.outputs.version_for_build }}
+          body: |
+            # Kormix ${{ needs.determine_version.outputs.version_for_build }}
+            
+            **Downloads:**
+            - **macOS Apple Silicon (M-series)**: Download the `-arm64-Setup.pkg` file for macOS 11.0 or later on Apple Silicon
+            - **macOS Intel**: Download the `-x86_64-Setup.pkg` file for macOS 11.0 or later on Intel processors
+            - **Windows**: Download the `.exe` file for Windows 10+
+            - **Linux (x64)**: Download the AppImage file for Linux distributions
+            
+            **System Requirements:**
+            - **macOS**: macOS 12.0+, Apple Silicon (M-series) or Intel processor
+            - **Windows**: Windows 10+ (64-bit), Intel or AMD processor
+            - **Linux**: Any modern Linux distribution (x64)
+            
+            **Plugin Formats Included:**
+            - **macOS** (both Intel and Apple Silicon): AU, AUv3, Standalone application
+            - **Windows**: VST3, Standalone application
+            - **Linux** (x64): Standalone application (AppImage)
+            
+            All downloads are digitally signed and verified for security.
+            
+            **Linux Installation:**
+            1. Download the AppImage file
+            2. Make it executable: `chmod +x Kormix-*-x86_64.AppImage`
+            3. Run it: `./Kormix-*-x86_64.AppImage`
+            
+            The AppImage includes all required dependencies and should work on any modern Linux distribution.
+            
+            ---
+            
+            **Release Notes:**
+            
+            For support, email info@kormix.io
+          draft: false
+          prerelease: ${{ needs.determine_version.outputs.is_prerelease }}
+          files: artifacts/*/*
