@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"/Users/dan/code/gstreamer-build/example_03_qjsink/build/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

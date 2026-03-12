@@ -1,0 +1,9 @@
+-rootPath
+/Users/dan/code/gstreamer-build/example_01_receiver
+-cmake-output
+-output-file
+/Users/dan/code/gstreamer-build/example_01_receiver/build/.qt_plugins/Qt6_QmlPlugins_Imports_receiver.cmake
+-importPath
+/Users/dan/code/gstreamer-build/example_01_receiver/build
+-importPath
+/Users/dan/qt6-static-build/./qml

@@ -1,0 +1,11 @@
+-rootPath
+/Users/dan/code/gstreamer-build/example_05_webcamv
+-cmake-output
+-output-file
+/Users/dan/code/gstreamer-build/example_05_webcamv/build/.qt_plugins/Qt6_QmlPlugins_Imports_webcamv.cmake
+-importPath
+/Users/dan/qt6-static-build/qml
+-importPath
+/Users/dan/code/gstreamer-build/example_05_webcamv/build
+-importPath
+/Users/dan/qt6-static-build/./qml

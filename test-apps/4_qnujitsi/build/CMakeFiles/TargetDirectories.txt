@@ -1,0 +1,5 @@
+/Users/dan/code/gstreamer-build/example_04_qnujitsi/build/CMakeFiles/qnujitsi.dir
+/Users/dan/code/gstreamer-build/example_04_qnujitsi/build/CMakeFiles/edit_cache.dir
+/Users/dan/code/gstreamer-build/example_04_qnujitsi/build/CMakeFiles/rebuild_cache.dir
+/Users/dan/code/gstreamer-build/example_04_qnujitsi/build/CMakeFiles/qnujitsi_autogen_timestamp_deps.dir
+/Users/dan/code/gstreamer-build/example_04_qnujitsi/build/CMakeFiles/qnujitsi_autogen.dir

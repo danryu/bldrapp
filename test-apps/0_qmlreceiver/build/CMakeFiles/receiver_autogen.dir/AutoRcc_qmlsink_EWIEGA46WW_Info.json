@@ -1,0 +1,22 @@
+{
+	"BUILD_DIR" : "/Users/dan/code/gstreamer-build/example_00_qmlreceiver/build/receiver_autogen",
+	"CMAKE_BINARY_DIR" : "/Users/dan/code/gstreamer-build/example_00_qmlreceiver/build",
+	"CMAKE_CURRENT_BINARY_DIR" : "/Users/dan/code/gstreamer-build/example_00_qmlreceiver/build",
+	"CMAKE_CURRENT_SOURCE_DIR" : "/Users/dan/code/gstreamer-build/example_00_qmlreceiver",
+	"CMAKE_SOURCE_DIR" : "/Users/dan/code/gstreamer-build/example_00_qmlreceiver",
+	"CROSS_CONFIG" : false,
+	"GENERATOR" : "Unix Makefiles",
+	"INCLUDE_DIR" : "/Users/dan/code/gstreamer-build/example_00_qmlreceiver/build/receiver_autogen/include",
+	"INPUTS" : [ "/Users/dan/code/gstreamer-build/example_00_qmlreceiver/main.qml" ],
+	"LOCK_FILE" : "/Users/dan/code/gstreamer-build/example_00_qmlreceiver/build/CMakeFiles/receiver_autogen.dir/AutoRcc_qmlsink_EWIEGA46WW_Lock.lock",
+	"MULTI_CONFIG" : false,
+	"OPTIONS" : [ "--no-zstd", "-name", "qmlsink" ],
+	"OUTPUT_CHECKSUM" : "EWIEGA46WW",
+	"OUTPUT_NAME" : "qrc_qmlsink.cpp",
+	"RCC_EXECUTABLE" : "/Users/dan/qt6-static-build/./libexec/rcc",
+	"RCC_LIST_OPTIONS" : [ "--list" ],
+	"SETTINGS_FILE" : "/Users/dan/code/gstreamer-build/example_00_qmlreceiver/build/CMakeFiles/receiver_autogen.dir/AutoRcc_qmlsink_EWIEGA46WW_Used.txt",
+	"SOURCE" : "/Users/dan/code/gstreamer-build/example_00_qmlreceiver/qmlsink.qrc",
+	"USE_BETTER_GRAPH" : false,
+	"VERBOSITY" : 0
+}

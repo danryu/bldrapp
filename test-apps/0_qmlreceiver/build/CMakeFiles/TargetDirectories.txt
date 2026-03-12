@@ -1,0 +1,3 @@
+/Users/dan/code/gstreamer-build/example_00_qmlreceiver/build/CMakeFiles/receiver.dir
+/Users/dan/code/gstreamer-build/example_00_qmlreceiver/build/CMakeFiles/edit_cache.dir
+/Users/dan/code/gstreamer-build/example_00_qmlreceiver/build/CMakeFiles/rebuild_cache.dir

@@ -1,0 +1,5 @@
+/Users/dan/code/gstreamer-build/example_05_webcamv/build/CMakeFiles/webcamv.dir
+/Users/dan/code/gstreamer-build/example_05_webcamv/build/CMakeFiles/edit_cache.dir
+/Users/dan/code/gstreamer-build/example_05_webcamv/build/CMakeFiles/rebuild_cache.dir
+/Users/dan/code/gstreamer-build/example_05_webcamv/build/CMakeFiles/webcamv_autogen_timestamp_deps.dir
+/Users/dan/code/gstreamer-build/example_05_webcamv/build/CMakeFiles/webcamv_autogen.dir

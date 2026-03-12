@@ -1,0 +1,3 @@
+/Users/dan/code/gstreamer-build/example_01_receiver/build/CMakeFiles/receiver.dir
+/Users/dan/code/gstreamer-build/example_01_receiver/build/CMakeFiles/edit_cache.dir
+/Users/dan/code/gstreamer-build/example_01_receiver/build/CMakeFiles/rebuild_cache.dir

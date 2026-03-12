@@ -1,0 +1,5 @@
+/Users/dan/code/gstreamer-build/example_02_qmlsink/build/CMakeFiles/qml6sink.dir
+/Users/dan/code/gstreamer-build/example_02_qmlsink/build/CMakeFiles/edit_cache.dir
+/Users/dan/code/gstreamer-build/example_02_qmlsink/build/CMakeFiles/rebuild_cache.dir
+/Users/dan/code/gstreamer-build/example_02_qmlsink/build/CMakeFiles/qml6sink_autogen_timestamp_deps.dir
+/Users/dan/code/gstreamer-build/example_02_qmlsink/build/CMakeFiles/qml6sink_autogen.dir

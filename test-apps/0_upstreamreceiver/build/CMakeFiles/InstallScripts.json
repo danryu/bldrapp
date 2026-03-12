@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"/Users/dan/code/gstreamer-build/example_00_upstreamreceiver/build/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

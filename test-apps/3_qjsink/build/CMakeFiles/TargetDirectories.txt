@@ -1,0 +1,5 @@
+/Users/dan/code/gstreamer-build/example_03_qjsink/build/CMakeFiles/qjsink.dir
+/Users/dan/code/gstreamer-build/example_03_qjsink/build/CMakeFiles/edit_cache.dir
+/Users/dan/code/gstreamer-build/example_03_qjsink/build/CMakeFiles/rebuild_cache.dir
+/Users/dan/code/gstreamer-build/example_03_qjsink/build/CMakeFiles/qjsink_autogen_timestamp_deps.dir
+/Users/dan/code/gstreamer-build/example_03_qjsink/build/CMakeFiles/qjsink_autogen.dir

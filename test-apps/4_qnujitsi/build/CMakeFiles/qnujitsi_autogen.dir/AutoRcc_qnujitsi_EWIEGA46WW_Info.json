@@ -1,0 +1,27 @@
+{
+	"BUILD_DIR" : "/Users/dan/code/gstreamer-build/example_04_qnujitsi/build/qnujitsi_autogen",
+	"CMAKE_BINARY_DIR" : "/Users/dan/code/gstreamer-build/example_04_qnujitsi/build",
+	"CMAKE_CURRENT_BINARY_DIR" : "/Users/dan/code/gstreamer-build/example_04_qnujitsi/build",
+	"CMAKE_CURRENT_SOURCE_DIR" : "/Users/dan/code/gstreamer-build/example_04_qnujitsi",
+	"CMAKE_SOURCE_DIR" : "/Users/dan/code/gstreamer-build/example_04_qnujitsi",
+	"CROSS_CONFIG" : false,
+	"GENERATOR" : "Unix Makefiles",
+	"INCLUDE_DIR" : "/Users/dan/code/gstreamer-build/example_04_qnujitsi/build/qnujitsi_autogen/include",
+	"INPUTS" : 
+	[
+		"/Users/dan/code/gstreamer-build/example_04_qnujitsi/qml/VideoSlot.qml",
+		"/Users/dan/code/gstreamer-build/example_04_qnujitsi/qml/Qnujitsi.qml",
+		"/Users/dan/code/gstreamer-build/example_04_qnujitsi/qml/main.qml"
+	],
+	"LOCK_FILE" : "/Users/dan/code/gstreamer-build/example_04_qnujitsi/build/CMakeFiles/qnujitsi_autogen.dir/AutoRcc_qnujitsi_EWIEGA46WW_Lock.lock",
+	"MULTI_CONFIG" : false,
+	"OPTIONS" : [ "--no-zstd", "-name", "qnujitsi" ],
+	"OUTPUT_CHECKSUM" : "EWIEGA46WW",
+	"OUTPUT_NAME" : "qrc_qnujitsi.cpp",
+	"RCC_EXECUTABLE" : "/Users/dan/qt6-static-build/./libexec/rcc",
+	"RCC_LIST_OPTIONS" : [ "--list" ],
+	"SETTINGS_FILE" : "/Users/dan/code/gstreamer-build/example_04_qnujitsi/build/CMakeFiles/qnujitsi_autogen.dir/AutoRcc_qnujitsi_EWIEGA46WW_Used.txt",
+	"SOURCE" : "/Users/dan/code/gstreamer-build/example_04_qnujitsi/qnujitsi.qrc",
+	"USE_BETTER_GRAPH" : false,
+	"VERBOSITY" : 0
+}
