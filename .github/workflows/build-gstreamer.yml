@@ -108,31 +108,25 @@ jobs:
       # Windows: MSYS2 setup, extract Qt, build via MSVC + MSYS2
       # -----------------------------------------------------------------------
 
+      - name: Install meson (Windows)
+        if: matrix.platform == 'windows' && steps.cache-gst.outputs.cache-hit != 'true'
+        run: pip install meson
+
       - name: Set up MSYS2 (Windows)
         if: matrix.platform == 'windows' && steps.cache-gst.outputs.cache-hit != 'true'
         uses: msys2/setup-msys2@v2
         with:
           msystem: MSYS
           update: true
-          # inherit: MSYS2 login shell picks up the Windows PATH, so cl.exe set
-          # up by ilammy/msvc-dev-cmd (below) is visible inside the MSYS2 shell.
+          # inherit: MSYS2 login shell picks up the Windows PATH, so cmake,
+          # ninja, git, perl (Strawberry), make, cl.exe etc. are all available
+          # from the native runner without installing conflicting MSYS2 versions.
           path-type: inherit
           install: >-
-            meson
-            ninja
-            pkg-config
-            python
-            python-pip
             bison
             flex
             nasm
-            git
-            perl
-            make
-            diffutils
-            patch
-            cmake
-            zip
+            pkg-config
 
       - name: Download Qt6 static (Windows)
         if: matrix.platform == 'windows' && steps.cache-gst.outputs.cache-hit != 'true'
@@ -167,10 +161,6 @@ jobs:
           QT_PATH: /c/qt6-static-build/qt6-static-build
           INSTALL_DEPS: "false"
         run: |
-          # Prepend Strawberry Perl (native Windows Perl) so it takes precedence
-          # over MSYS2's Cygwin Perl. OpenSSL's Configure requires a Perl that
-          # produces Windows-style (backslash) paths — Cygwin Perl is rejected.
-          export PATH="/c/Strawberry/perl/bin:$PATH"
           chmod +x build_gstreamer.sh
           ./build_gstreamer.sh
 
