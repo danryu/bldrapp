@@ -1,0 +1,209 @@
+name: 01 - Build GStreamer (static)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: GStreamer static (${{ matrix.artifact_suffix }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos
+            arch: arm64
+            runner: macos-14
+            qt_suffix: macOS-arm64
+            artifact_suffix: macOS-arm64
+          - platform: macos
+            arch: x86_64
+            runner: macos-14-large
+            qt_suffix: macOS-x86_64
+            artifact_suffix: macOS-x86_64
+          - platform: windows
+            arch: x86_64
+            runner: windows-2022
+            qt_suffix: Windows
+            artifact_suffix: Windows-x86_64
+
+    steps:
+      - name: Checkout gstreamer-build
+        uses: actions/checkout@v4
+        with:
+          repository: kormix-io/gstreamer-build
+          token: ${{ secrets.KORMIX_GH_ACCESS_TOKEN }}
+          fetch-depth: 1
+
+      # Cache the finished install/ directory — keyed on the build script content.
+      # A change to build_gstreamer.sh (new GStreamer/OpenSSL/LWS version etc.)
+      # automatically busts the cache.
+      - name: Restore build cache
+        id: cache-gst
+        uses: actions/cache@v4
+        with:
+          path: install
+          key: gstreamer-install-${{ matrix.artifact_suffix }}-${{ hashFiles('build_gstreamer.sh') }}
+
+      - name: Cache status
+        shell: bash
+        run: |
+          if [ "${{ steps.cache-gst.outputs.cache-hit }}" == "true" ]; then
+            echo "Cache hit — skipping full build"
+          else
+            echo "Cache miss — full build required (expect ~2-3 hrs)"
+          fi
+
+      # -----------------------------------------------------------------------
+      # macOS: install deps, extract Qt, build
+      # -----------------------------------------------------------------------
+
+      - name: Select Xcode (macOS)
+        if: matrix.platform == 'macos' && steps.cache-gst.outputs.cache-hit != 'true'
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '16.2'
+
+      - name: Install build dependencies (macOS)
+        if: matrix.platform == 'macos' && steps.cache-gst.outputs.cache-hit != 'true'
+        run: brew install meson ninja pkg-config python3 bison flex nasm cmake
+
+      - name: Download Qt6 static (macOS)
+        if: matrix.platform == 'macos' && steps.cache-gst.outputs.cache-hit != 'true'
+        uses: robinraju/release-downloader@v1
+        with:
+          tag: qt-static-rel4
+          repository: kormix-io/kormix-app
+          token: ${{ secrets.KORMIX_GH_ACCESS_TOKEN }}
+          fileName: qt6*-static-${{ matrix.qt_suffix }}.zip
+          out-file-path: qt-download
+          extract: false
+
+      - name: Extract Qt6 static (macOS)
+        if: matrix.platform == 'macos' && steps.cache-gst.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p "${{ github.workspace }}/qt6-static-build"
+          ditto -x -k -v qt-download/qt6*.zip "${{ github.workspace }}/qt6-static-build"
+          ls -la "${{ github.workspace }}/qt6-static-build"
+
+      - name: Build GStreamer (macOS)
+        if: matrix.platform == 'macos' && steps.cache-gst.outputs.cache-hit != 'true'
+        env:
+          QT_PATH: ${{ github.workspace }}/qt6-static-build/qt6-static-build
+          INSTALL_DEPS: "false"
+          MACOSX_DEPLOYMENT_TARGET: "13.3"
+        run: |
+          chmod +x build_gstreamer.sh
+          ./build_gstreamer.sh
+
+      # -----------------------------------------------------------------------
+      # Windows: MSYS2 setup, extract Qt, build via MSVC + MSYS2
+      # -----------------------------------------------------------------------
+
+      - name: Set up MSYS2 (Windows)
+        if: matrix.platform == 'windows' && steps.cache-gst.outputs.cache-hit != 'true'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MSYS
+          update: true
+          install: >-
+            meson
+            ninja
+            pkg-config
+            python
+            python-pip
+            bison
+            flex
+            nasm
+            git
+            perl
+            make
+            diffutils
+            patch
+            cmake
+            zip
+
+      - name: Download Qt6 static (Windows)
+        if: matrix.platform == 'windows' && steps.cache-gst.outputs.cache-hit != 'true'
+        uses: robinraju/release-downloader@v1
+        with:
+          tag: qt-static-rel4
+          repository: kormix-io/kormix-app
+          token: ${{ secrets.KORMIX_GH_ACCESS_TOKEN }}
+          fileName: qt6*-static-${{ matrix.qt_suffix }}.zip
+          out-file-path: qt-download
+          extract: false
+
+      - name: Extract Qt6 static (Windows)
+        if: matrix.platform == 'windows' && steps.cache-gst.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "C:\qt6-static-build"
+          Expand-Archive -Path (Get-Item "qt-download\qt6*.zip").FullName -DestinationPath "C:\qt6-static-build" -Force
+          Get-ChildItem "C:\qt6-static-build"
+
+      - name: Build GStreamer (Windows)
+        if: matrix.platform == 'windows' && steps.cache-gst.outputs.cache-hit != 'true'
+        shell: msys2 {0}
+        env:
+          # MSYS2 POSIX path for the extracted Qt prefix
+          QT_PATH: /c/qt6-static-build/qt6-static-build
+          INSTALL_DEPS: "false"
+        run: |
+          chmod +x build_gstreamer.sh
+          ./build_gstreamer.sh
+
+      # -----------------------------------------------------------------------
+      # Verify, package and upload (platform-specific where needed)
+      # -----------------------------------------------------------------------
+
+      - name: Verify artifacts (macOS)
+        if: matrix.platform == 'macos'
+        run: |
+          ls -lh install/lib/libgstreamer-full-1.0.a
+          find install -name 'libgstqml6*.*'
+
+      - name: Verify artifacts (Windows)
+        if: matrix.platform == 'windows'
+        shell: msys2 {0}
+        run: |
+          ls -lh install/lib/libgstreamer-full-1.0.lib
+          find install -name 'libgstqml6*.*'
+
+      - name: Archive install directory (macOS)
+        if: matrix.platform == 'macos'
+        run: |
+          zip -r gstreamer-static-${{ matrix.artifact_suffix }}.zip install/
+          ls -lh gstreamer-static-${{ matrix.artifact_suffix }}.zip
+
+      - name: Archive install directory (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path install -DestinationPath "gstreamer-static-${{ matrix.artifact_suffix }}.zip"
+          Get-Item "gstreamer-static-${{ matrix.artifact_suffix }}.zip" | Select-Object Name, Length
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gstreamer-static-${{ matrix.artifact_suffix }}
+          path: gstreamer-static-${{ matrix.artifact_suffix }}.zip
+          retention-days: 30
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: gstreamer-static-latest
+          name: GStreamer Static Build (latest)
+          prerelease: true
+          make_latest: false
+          files: gstreamer-static-${{ matrix.artifact_suffix }}.zip
+          token: ${{ secrets.KORMIX_GH_ACCESS_TOKEN }}
+          repository: kormix-io/gstreamer-build
