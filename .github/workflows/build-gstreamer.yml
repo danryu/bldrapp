@@ -114,6 +114,9 @@ jobs:
         with:
           msystem: MSYS
           update: true
+          # inherit: MSYS2 login shell picks up the Windows PATH, so cl.exe set
+          # up by ilammy/msvc-dev-cmd (below) is visible inside the MSYS2 shell.
+          path-type: inherit
           install: >-
             meson
             ninja
@@ -149,6 +152,12 @@ jobs:
           New-Item -ItemType Directory -Force -Path "C:\qt6-static-build"
           Expand-Archive -Path (Get-Item "qt-download\qt6*.zip").FullName -DestinationPath "C:\qt6-static-build" -Force
           Get-ChildItem "C:\qt6-static-build"
+
+      - name: Set up MSVC environment (Windows)
+        if: matrix.platform == 'windows' && steps.cache-gst.outputs.cache-hit != 'true'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
 
       - name: Build GStreamer (Windows)
         if: matrix.platform == 'windows' && steps.cache-gst.outputs.cache-hit != 'true'
