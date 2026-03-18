@@ -167,6 +167,10 @@ jobs:
           QT_PATH: /c/qt6-static-build/qt6-static-build
           INSTALL_DEPS: "false"
         run: |
+          # Prepend Strawberry Perl (native Windows Perl) so it takes precedence
+          # over MSYS2's Cygwin Perl. OpenSSL's Configure requires a Perl that
+          # produces Windows-style (backslash) paths — Cygwin Perl is rejected.
+          export PATH="/c/Strawberry/perl/bin:$PATH"
           chmod +x build_gstreamer.sh
           ./build_gstreamer.sh
 
