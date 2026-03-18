@@ -161,6 +161,12 @@ jobs:
           QT_PATH: /c/qt6-static-build/qt6-static-build
           INSTALL_DEPS: "false"
         run: |
+          # MSYS2 base always ships Cygwin Perl and a Unix 'link' utility.
+          # Both conflict with the MSVC toolchain regardless of which extra
+          # packages were installed — prepend Strawberry Perl and remove the
+          # Unix link so MSVC's link.exe wins instead.
+          export PATH="/c/Strawberry/perl/bin:$PATH"
+          rm -f /usr/bin/link
           chmod +x build_gstreamer.sh
           ./build_gstreamer.sh
 
