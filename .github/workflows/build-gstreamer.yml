@@ -161,6 +161,10 @@ jobs:
           # MSYS2 POSIX path for the extracted Qt prefix
           QT_PATH: /c/qt6-static-build/qt6-static-build
           INSTALL_DEPS: "false"
+          # Use real NTFS symlinks instead of MSYS2 fake symlinks (text files).
+          # Without this, submod's ln -s calls hit ELOOP (too many levels).
+          # GitHub Actions Windows runners have SeCreateSymbolicLink privilege.
+          MSYS: winsymlinks:nativestrict
         run: |
           # MSYS2 base always ships Cygwin Perl and a Unix 'link' utility.
           # Both conflict with the MSVC toolchain regardless of which extra
