@@ -39,6 +39,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: kormix-io/gstreamer-build
+          ref: kdev
           token: ${{ secrets.KORMIX_GH_ACCESS_TOKEN }}
           fetch-depth: 1
 
