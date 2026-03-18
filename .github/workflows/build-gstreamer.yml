@@ -18,16 +18,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: macos
-            arch: arm64
-            runner: macos-14
-            qt_suffix: macOS-arm64
-            artifact_suffix: macOS-arm64
-          - platform: macos
-            arch: x86_64
-            runner: macos-14-large
-            qt_suffix: macOS-x86_64
-            artifact_suffix: macOS-x86_64
+          # - platform: macos
+          #   arch: arm64
+          #   runner: macos-14
+          #   qt_suffix: macOS-arm64
+          #   artifact_suffix: macOS-arm64
+          # - platform: macos
+          #   arch: x86_64
+          #   runner: macos-14-large
+          #   qt_suffix: macOS-x86_64
+          #   artifact_suffix: macOS-x86_64
           - platform: windows
             arch: x86_64
             runner: windows-2022
@@ -111,6 +111,21 @@ jobs:
       - name: Install meson (Windows)
         if: matrix.platform == 'windows' && steps.cache-gst.outputs.cache-hit != 'true'
         run: pip install meson
+
+      - name: Configure Meson native file for MSVC (Windows)
+        if: matrix.platform == 'windows' && steps.cache-gst.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          # Meson auto-loads native files from %LOCALAPPDATA%\meson\native\,
+          # applying them to all projects and subprojects. This overrides
+          # cpp_std globally so every submodule that declares c++23 gets
+          # vc++latest instead — no per-repo changes needed.
+          $dir = "$env:LOCALAPPDATA\meson\native"
+          New-Item -ItemType Directory -Force -Path $dir
+          @"
+          [built-in options]
+          cpp_std = 'vc++latest'
+          "@ | Set-Content "$dir\msvc.ini"
 
       - name: Set up MSYS2 (Windows)
         if: matrix.platform == 'windows' && steps.cache-gst.outputs.cache-hit != 'true'
