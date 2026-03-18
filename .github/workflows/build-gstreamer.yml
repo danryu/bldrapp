@@ -207,4 +207,4 @@ jobs:
           make_latest: false
           files: gstreamer-static-${{ matrix.artifact_suffix }}.zip
           token: ${{ secrets.KORMIX_GH_ACCESS_TOKEN }}
-          repository: kormix-io/gstreamer-build
+          repository: kormix-io/kormix-releases
