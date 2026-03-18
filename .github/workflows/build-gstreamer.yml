@@ -112,20 +112,6 @@ jobs:
         if: matrix.platform == 'windows' && steps.cache-gst.outputs.cache-hit != 'true'
         run: pip install meson
 
-      - name: Configure Meson native file for MSVC (Windows)
-        if: matrix.platform == 'windows' && steps.cache-gst.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: |
-          # Meson auto-loads native files from %LOCALAPPDATA%\meson\native\,
-          # applying them to all projects and subprojects. This overrides
-          # cpp_std globally so every submodule that declares c++23 gets
-          # vc++latest instead — no per-repo changes needed.
-          $dir = "$env:LOCALAPPDATA\meson\native"
-          New-Item -ItemType Directory -Force -Path $dir
-          @"
-          [built-in options]
-          cpp_std = 'vc++latest'
-          "@ | Set-Content "$dir\msvc.ini"
 
       - name: Set up MSYS2 (Windows)
         if: matrix.platform == 'windows' && steps.cache-gst.outputs.cache-hit != 'true'
