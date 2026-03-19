@@ -172,6 +172,15 @@ jobs:
           # Unix link so MSVC's link.exe wins instead.
           export PATH="/c/Strawberry/perl/bin:$PATH"
           rm -f /usr/bin/link
+
+          # Expose the bundled gl-headers subproject to MSVC's INCLUDE path.
+          # GL/wglext.h and GL/glext.h are not part of the Windows SDK, so
+          # meson's cc.has_header('GL/wglext.h') probe fails without this,
+          # causing the WGL platform to not be detected and the gl plugin to
+          # error out. The headers are already in the gstreamer subprojects tree.
+          GLHEADERS="$(cygpath -m "$(pwd)/gstreamer/subprojects/gl-headers")"
+          export INCLUDE="${GLHEADERS}/wglext;${GLHEADERS}/glext;${INCLUDE}"
+
           chmod +x build_gstreamer.sh
           ./build_gstreamer.sh
 
