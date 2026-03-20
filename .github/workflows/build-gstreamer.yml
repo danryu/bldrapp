@@ -80,7 +80,7 @@ jobs:
         if: matrix.platform == 'macos' && steps.cache-gst.outputs.cache-hit != 'true'
         uses: robinraju/release-downloader@v1
         with:
-          tag: qt-static-rel4
+          tag: qt-static-rel5
           repository: kormix-io/kormix-app
           token: ${{ secrets.KORMIX_GH_ACCESS_TOKEN }}
           fileName: qt6*-static-${{ matrix.qt_suffix }}.zip
@@ -132,7 +132,7 @@ jobs:
         if: matrix.platform == 'windows' && steps.cache-gst.outputs.cache-hit != 'true'
         uses: robinraju/release-downloader@v1
         with:
-          tag: qt-static-rel4
+          tag: qt-static-rel5
           repository: kormix-io/kormix-app
           token: ${{ secrets.KORMIX_GH_ACCESS_TOKEN }}
           fileName: qt6*-static-${{ matrix.qt_suffix }}.zip
