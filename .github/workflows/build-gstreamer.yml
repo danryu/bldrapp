@@ -91,7 +91,7 @@ jobs:
         if: matrix.platform == 'macos' && steps.cache-gst.outputs.cache-hit != 'true'
         run: |
           mkdir -p "${{ github.workspace }}/qt6-static-build"
-          ditto -x -k -v qt-download/qt6*.zip "${{ github.workspace }}/qt6-static-build"
+          ditto -x -k -v qt-download/qtv6*.zip "${{ github.workspace }}/qt6-static-build"
           ls -la "${{ github.workspace }}/qt6-static-build"
 
       - name: Build GStreamer (macOS)
@@ -121,7 +121,7 @@ jobs:
           tag: qt-static-rel5
           repository: kormix-io/kormix-app
           token: ${{ secrets.KORMIX_GH_ACCESS_TOKEN }}
-          fileName: qt6*-static-${{ matrix.qt_suffix }}.zip
+          fileName: qtv6*-static-${{ matrix.qt_suffix }}.zip
           out-file-path: qt-download
           extract: false
 
@@ -129,7 +129,7 @@ jobs:
         if: matrix.platform == 'windows' && steps.cache-gst.outputs.cache-hit != 'true'
         run: |
           mkdir -p "${{ github.workspace }}/qt6-static-build"
-          unzip qt-download/qt6*.zip -d "${{ github.workspace }}/qt6-static-build"
+          unzip qt-download/qtv6*.zip -d "${{ github.workspace }}/qt6-static-build"
           ls -la "${{ github.workspace }}/qt6-static-build"
 
       - name: Build GStreamer (Windows cross-compile)
