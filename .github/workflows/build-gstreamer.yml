@@ -154,6 +154,9 @@ jobs:
               chmod +x "${QT_LIBEXEC}/${tool}"
             fi
           done
+          # qsb (Qt Shader Baker) - not available via apt; create version-spoofing stub
+          printf '#!/bin/bash\nif [ "$1" = "--version" ] || [ "$1" = "-v" ]; then\n  echo "6.5.7"\nelse\n  echo "qsb stub: $@" >&2\nfi\n' > "${QT_LIBEXEC}/qsb"
+          chmod +x "${QT_LIBEXEC}/qsb"
           chmod +x build_gstreamer.sh
           ./build_gstreamer.sh
 
