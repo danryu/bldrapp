@@ -113,9 +113,15 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 mingw-w64-tools \
+            mingw-w64-x86-64-dev \
             ninja-build pkg-config cmake python3 python3-pip bison flex nasm perl make \
             qt6-tools-dev qt6-tools-dev-tools qt6-l10n-tools qt6-declarative-dev-tools
           pip install meson
+          # Verify key Windows SDK headers are available for cross-compilation
+          echo "Checking MinGW-w64 headers..."
+          ls /usr/x86_64-w64-mingw32/include/d2d1*.h || echo "WARNING: d2d1 headers missing"
+          x86_64-w64-mingw32-gcc -E -x c - <<< '#include <d2d1_3.h>' > /dev/null 2>&1 \
+            && echo "d2d1_3.h: OK" || echo "d2d1_3.h: NOT FOUND"
 
       - name: Download Qt6 static (Windows)
         if: matrix.platform == 'windows' && steps.cache-gst.outputs.cache-hit != 'true'
