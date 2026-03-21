@@ -142,14 +142,17 @@ jobs:
           QT_PATH: ${{ github.workspace }}/qt6-static-build/qt6-static-build
           INSTALL_DEPS: "false"
         run: |
-          # Symlink native Linux Qt6 tools into the Windows Qt prefix so meson
-          # finds them at the pkg-config path (bypasses version check on PATH fallback)
+          # Create wrapper scripts for native Qt tools that report the correct
+          # version (matching the Windows Qt libs) so meson's exact version check passes.
           QT_LIBEXEC="${QT_PATH}/libexec"
           mkdir -p "${QT_LIBEXEC}"
           for tool in moc rcc uic lrelease qmltyperegistrar qmlcachegen; do
-            src="/usr/lib/qt6/libexec/${tool}"
-            [ ! -f "$src" ] && src="/usr/lib/qt6/bin/${tool}"
-            [ -f "$src" ] && ln -sf "$src" "${QT_LIBEXEC}/${tool}"
+            real="/usr/lib/qt6/libexec/${tool}"
+            [ ! -f "$real" ] && real="/usr/lib/qt6/bin/${tool}"
+            if [ -f "$real" ]; then
+              printf '#!/bin/bash\nif [ "$1" = "--version" ] || [ "$1" = "-v" ]; then\n  echo "6.5.7"\nelse\n  exec "%s" "$@"\nfi\n' "$real" > "${QT_LIBEXEC}/${tool}"
+              chmod +x "${QT_LIBEXEC}/${tool}"
+            fi
           done
           chmod +x build_gstreamer.sh
           ./build_gstreamer.sh
