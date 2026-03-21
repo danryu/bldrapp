@@ -117,11 +117,15 @@ jobs:
             ninja-build pkg-config cmake python3 python3-pip bison flex nasm perl make \
             qt6-tools-dev qt6-tools-dev-tools qt6-l10n-tools qt6-declarative-dev-tools
           pip install meson
-          # Verify key Windows SDK headers are available for cross-compilation
-          echo "Checking MinGW-w64 headers..."
-          ls /usr/x86_64-w64-mingw32/include/d2d1*.h || echo "WARNING: d2d1 headers missing"
+          # Ubuntu 24.04's mingw-w64 headers are too old (missing d2d1_3.h etc.)
+          # Replace with latest from mingw-w64 source
+          echo "Updating MinGW-w64 headers from source..."
+          git clone --depth 1 https://github.com/mingw-w64/mingw-w64.git /tmp/mingw-w64-src
+          sudo cp -r /tmp/mingw-w64-src/mingw-w64-headers/include/* /usr/x86_64-w64-mingw32/include/
+          rm -rf /tmp/mingw-w64-src
+          # Verify
           x86_64-w64-mingw32-gcc -E -x c - <<< '#include <d2d1_3.h>' > /dev/null 2>&1 \
-            && echo "d2d1_3.h: OK" || echo "d2d1_3.h: NOT FOUND"
+            && echo "d2d1_3.h: OK" || echo "d2d1_3.h: STILL NOT FOUND"
 
       - name: Download Qt6 static (Windows)
         if: matrix.platform == 'windows' && steps.cache-gst.outputs.cache-hit != 'true'
