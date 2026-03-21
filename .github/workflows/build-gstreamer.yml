@@ -83,7 +83,7 @@ jobs:
           tag: qt-static-rel5
           repository: kormix-io/kormix-app
           token: ${{ secrets.KORMIX_GH_ACCESS_TOKEN }}
-          fileName: qt6*-static-${{ matrix.qt_suffix }}.zip
+          fileName: qtv6*-static-${{ matrix.qt_suffix }}.zip
           out-file-path: qt-download
           extract: false
 
