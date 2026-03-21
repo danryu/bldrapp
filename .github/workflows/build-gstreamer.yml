@@ -112,7 +112,8 @@ jobs:
         if: matrix.platform == 'windows' && steps.cache-gst.outputs.cache-hit != 'true'
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 mingw-w64-tools
+          sudo apt-get install -y gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 mingw-w64-tools \
+            meson ninja-build pkg-config cmake python3 python3-pip bison flex nasm perl make
 
       - name: Download Qt6 static (Windows)
         if: matrix.platform == 'windows' && steps.cache-gst.outputs.cache-hit != 'true'
