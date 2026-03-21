@@ -113,9 +113,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 mingw-w64-tools \
-            ninja-build pkg-config cmake python3 python3-pip bison flex nasm perl make \
-            qt6-tools-dev qt6-tools-dev-tools qt6-l10n-tools qt6-declarative-dev-tools
-          pip install meson
+            ninja-build pkg-config cmake python3 python3-pip bison flex nasm perl make
+          pip install meson aqtinstall
+          # Install native Linux Qt tools matching the Windows Qt version (exact match required by meson)
+          aqt install-qt linux desktop 6.5.7 -m qtbase qtdeclarative qttools --outputdir ${{ github.workspace }}/qt-host
 
       - name: Download Qt6 static (Windows)
         if: matrix.platform == 'windows' && steps.cache-gst.outputs.cache-hit != 'true'
@@ -143,7 +144,7 @@ jobs:
           INSTALL_DEPS: "false"
         run: |
           # Add native Linux Qt6 tools to PATH so meson finds moc/rcc/uic/etc
-          export PATH="/usr/lib/qt6/libexec:/usr/lib/qt6/bin:$PATH"
+          export PATH="${{ github.workspace }}/qt-host/6.5.7/gcc_64/libexec:${{ github.workspace }}/qt-host/6.5.7/gcc_64/bin:$PATH"
           chmod +x build_gstreamer.sh
           ./build_gstreamer.sh
 
