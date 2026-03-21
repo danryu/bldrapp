@@ -142,6 +142,8 @@ jobs:
           QT_PATH: ${{ github.workspace }}/qt6-static-build/qt6-static-build
           INSTALL_DEPS: "false"
         run: |
+          # Add native Linux Qt6 tools to PATH so meson finds moc/rcc/uic/etc
+          export PATH="/usr/lib/qt6/libexec:/usr/lib/qt6/bin:$PATH"
           chmod +x build_gstreamer.sh
           ./build_gstreamer.sh
 
