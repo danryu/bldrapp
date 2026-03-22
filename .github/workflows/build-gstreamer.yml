@@ -153,10 +153,10 @@ jobs:
         if: matrix.platform == 'windows' && steps.cache-gst.outputs.cache-hit != 'true'
         shell: msys2 {0}
         env:
-          QT_PATH: ${{ github.workspace }}/qt6-static-build/qt6-static-build
           INSTALL_DEPS: "false"
           MSYS: winsymlinks:nativestrict
         run: |
+          export QT_PATH="$(cygpath -u '${{ github.workspace }}/qt6-static-build/qt6-static-build')"
           chmod +x build_gstreamer.sh
           ./build_gstreamer.sh
 
