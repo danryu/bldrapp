@@ -172,11 +172,20 @@ jobs:
 
       - name: Verify artifacts (Windows)
         if: matrix.platform == 'windows'
+        shell: msys2 {0}
         run: |
           ls -lh install/lib/libgstreamer-full-1.0.a
           find install -name 'libgstqml6*.*'
 
       - name: Archive install directory
+        if: matrix.platform != 'windows'
+        run: |
+          zip -r gstreamer-static-${{ matrix.artifact_suffix }}.zip install/
+          ls -lh gstreamer-static-${{ matrix.artifact_suffix }}.zip
+
+      - name: Archive install directory (Windows)
+        if: matrix.platform == 'windows'
+        shell: msys2 {0}
         run: |
           zip -r gstreamer-static-${{ matrix.artifact_suffix }}.zip install/
           ls -lh gstreamer-static-${{ matrix.artifact_suffix }}.zip
