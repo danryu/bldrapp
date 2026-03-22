@@ -1,13 +1,19 @@
-name: 02 - Build kromx
+# Builds Kormix from kormix-io/kormix-app and publishes installers to kormix-io/kormix-releases (public).
+# Trigger: workflow_dispatch on this repo, or repository_dispatch from kormix-app when a version tag is pushed there.
+name: 02 - Build app
 
 on:
   workflow_dispatch:
-  push:
-    tags:
-      - 'v*' # Trigger on version tags like v1.0, v2.3.4
+    inputs:
+      kormix_ref:
+        description: 'kormix-app git ref (branch, tag, or SHA) when not using repository_dispatch'
+        required: false
+        default: 'main'
+  repository_dispatch:
+    types: [kormix-app-release]
 
 permissions:
-  contents: write  # Required for creating releases
+  contents: write
 
 jobs:
   determine_version:
@@ -15,23 +21,33 @@ jobs:
     outputs:
       version_for_build: ${{ steps.version_info.outputs.version_for_build }}
       is_prerelease: ${{ steps.version_info.outputs.is_prerelease }}
+      kormix_ref: ${{ steps.pick_ref.outputs.ref }}
     steps:
-      - name: Checkout code
+      - name: Resolve kormix-app ref
+        id: pick_ref
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            echo "ref=${{ github.event.client_payload.sha }}" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ github.event.inputs.kormix_ref }}" ]; then
+            echo "ref=${{ github.event.inputs.kormix_ref }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=main" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout kormix-app
         uses: actions/checkout@v4
         with:
           repository: kormix-io/kormix-app
           token: ${{ secrets.KORMIX_GH_ACCESS_TOKEN }}
           submodules: recursive
-          fetch-depth: 1 # Fetch depth 1 is usually fine unless full history needed for versioning
-        continue-on-error: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.KORMIX_GH_ACCESS_TOKEN }}
+          fetch-depth: 1
+          ref: ${{ steps.pick_ref.outputs.ref }}
 
       - name: Determine Version
         id: version_info
         shell: bash
         run: |
-          # Extract version from CMakeLists.txt project() line
           VERSION_FROM_CMAKE=$(grep -E '^project\(' CMakeLists.txt | sed -n 's/.*VERSION \([0-9]*\.[0-9]*\.[0-9]*\).*/\1/p')
           if [ -z "$VERSION_FROM_CMAKE" ]; then
             echo "::error::Could not extract version from CMakeLists.txt project() line"
@@ -40,8 +56,13 @@ jobs:
           fi
           echo "::notice::Extracted version from CMakeLists.txt: ${VERSION_FROM_CMAKE}"
           echo "version_for_build=${VERSION_FROM_CMAKE}" >> $GITHUB_OUTPUT
-          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            TAG="${{ github.event.client_payload.tag }}"
+            if [[ "$TAG" == v* ]]; then
+              echo "is_prerelease=false" >> $GITHUB_OUTPUT
+            else
+              echo "is_prerelease=true" >> $GITHUB_OUTPUT
+            fi
           else
             echo "is_prerelease=true" >> $GITHUB_OUTPUT
           fi
@@ -118,16 +139,14 @@ jobs:
           #   artifact_upload_path: build # Flatpak outputs here
 
     steps:
-      - name: Checkout code
+      - name: Checkout kormix-app
         uses: actions/checkout@v4
         with:
           repository: kormix-io/kormix-app
           token: ${{ secrets.KORMIX_GH_ACCESS_TOKEN }}
           submodules: recursive
-          fetch-depth: 1 # Fetch depth 1 is usually fine unless full history needed for versioning
-        continue-on-error: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.KORMIX_GH_ACCESS_TOKEN }}
+          fetch-depth: 1
+          ref: ${{ needs.determine_version.outputs.kormix_ref }}
 
       # The STRIPPED_RELEASE_VERSION step is replaced by the outputs of 'Determine Version'
 
@@ -198,7 +217,7 @@ jobs:
         if: contains(matrix.os, 'macos')
         uses: robinraju/release-downloader@v1
         with:
-          tag: qt-static-rel4
+          tag: qt-static-rel5
           repository: kormix-io/kormix-app
           token: ${{ secrets.KORMIX_GH_ACCESS_TOKEN }}
           fileName: qt6*-static-${{ matrix.qt_archive_suffix }}.zip
@@ -573,7 +592,7 @@ jobs:
         if: matrix.os == 'windows-2022'
         uses: robinraju/release-downloader@v1
         with:
-          tag: qt-static-rel4
+          tag: qt-static-rel5
           repository: kormix-io/kormix-app
           token: ${{ secrets.KORMIX_GH_ACCESS_TOKEN }}
           fileName: qt6*-static-${{ matrix.qt_archive_suffix }}.zip
@@ -798,7 +817,7 @@ jobs:
       #   if: contains(matrix.os, 'ubuntu-22.04')
       #   uses: robinraju/release-downloader@v1
       #   with:
-      #     tag: qt-static-rel4
+      #     tag: qt-static-rel5
       #     fileName: qt6*-static-${{ matrix.qt_archive_suffix }}.zip
       #     out-file-path: qt
       #     extract: false

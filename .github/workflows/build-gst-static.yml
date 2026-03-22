@@ -1,4 +1,5 @@
-name: 01 - Build GStreamer (static)
+# Source lives in kormix-io/kormix-app under gst-build/. Qt zips from that repo’s releases; GStreamer zips are published there (private) as well.
+name: 01 - Build GST static
 
 on:
   workflow_dispatch:
@@ -14,6 +15,9 @@ jobs:
     name: GStreamer static (${{ matrix.artifact_suffix }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 300
+    defaults:
+      run:
+        working-directory: gst-build
     strategy:
       fail-fast: false
       matrix:
@@ -35,23 +39,20 @@ jobs:
             artifact_suffix: Windows-x86_64
 
     steps:
-      - name: Checkout gstreamer-build
+      - name: Checkout kormix-app
         uses: actions/checkout@v4
         with:
-          repository: kormix-io/gstreamer-build
-          ref: kdev
+          repository: kormix-io/kormix-app
           token: ${{ secrets.KORMIX_GH_ACCESS_TOKEN }}
           fetch-depth: 1
 
-      # Cache the finished install/ directory — keyed on the build script content.
-      # A change to build_gstreamer.sh (new GStreamer/OpenSSL/LWS version etc.)
-      # automatically busts the cache.
+      # Cache gst-build/install — keyed on build_gstreamer.sh.
       - name: Restore build cache
         id: cache-gst
         uses: actions/cache@v4
         with:
-          path: install
-          key: gstreamer-install-${{ matrix.artifact_suffix }}-${{ hashFiles('build_gstreamer.sh') }}
+          path: gst-build/install
+          key: gstreamer-install-${{ matrix.artifact_suffix }}-${{ hashFiles('gst-build/build_gstreamer.sh') }}
 
       - name: Cache status
         shell: bash
@@ -91,7 +92,7 @@ jobs:
         if: matrix.platform == 'macos' && steps.cache-gst.outputs.cache-hit != 'true'
         run: |
           mkdir -p "${{ github.workspace }}/qt6-static-build"
-          ditto -x -k -v qt-download/qtv6*.zip "${{ github.workspace }}/qt6-static-build"
+          ditto -x -k -v "${{ github.workspace }}/qt-download/qtv6"*.zip "${{ github.workspace }}/qt6-static-build"
           ls -la "${{ github.workspace }}/qt6-static-build"
 
       - name: Build GStreamer (macOS)
@@ -146,7 +147,7 @@ jobs:
         shell: msys2 {0}
         run: |
           mkdir -p "${{ github.workspace }}/qt6-static-build"
-          unzip qt-download/qtv6*.zip -d "${{ github.workspace }}/qt6-static-build"
+          unzip "${{ github.workspace }}/qt-download/qtv6"*.zip -d "${{ github.workspace }}/qt6-static-build"
           ls -la "${{ github.workspace }}/qt6-static-build"
 
       - name: Build GStreamer (Windows MSYS2 UCRT64)
@@ -194,7 +195,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: gstreamer-static-${{ matrix.artifact_suffix }}
-          path: gstreamer-static-${{ matrix.artifact_suffix }}.zip
+          path: gst-build/gstreamer-static-${{ matrix.artifact_suffix }}.zip
           retention-days: 30
 
       - name: Upload to GitHub Release
@@ -204,6 +205,6 @@ jobs:
           name: GStreamer Static Build (latest)
           prerelease: true
           make_latest: false
-          files: gstreamer-static-${{ matrix.artifact_suffix }}.zip
+          files: gst-build/gstreamer-static-${{ matrix.artifact_suffix }}.zip
           token: ${{ secrets.KORMIX_GH_ACCESS_TOKEN }}
-          repository: kormix-io/kormix-releases
+          repository: kormix-io/kormix-app

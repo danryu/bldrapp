@@ -1,0 +1,463 @@
+# Builds static Qt from sources checked out from kormix-io/kormix-app (CMake cache keys).
+# Publishes zip artifacts to a GitHub Release on the private repo kormix-io/kormix-app.
+name: 00 - Build Qt Static
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    defaults:
+      run:
+        working-directory: kormix-app
+    strategy:
+      fail-fast: false # Keep running other jobs even if one fails
+      matrix:
+        include:
+          # Desktop Platforms
+          # - name: Linux-x64
+          #   os: ubuntu-24.04
+          #   qt_platform: linux-g++
+          #   qt_configure_args: >-
+          #     -icu 
+          #     -xcb
+          #     -xcb-xlib
+          #     -xkbcommon
+          #     -bundled-xcb-xinput
+          #     -glib
+          #     -fontconfig 
+          #     -system-freetype
+          #   cmake_generator: "Ninja"
+          #   qt_version: "6.10"
+          #   packages: >-
+          #     build-essential ninja-build libgl1-mesa-dev libgles2-mesa-dev libvulkan-dev
+          #     libpulse-dev libasound2-dev libdbus-1-dev libfontconfig1-dev
+          #     libinput-dev libproxy-dev libssl-dev
+          #     libudev-dev libxi-dev libxml2-dev libxslt1-dev
+          #     libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly
+          #     libwebkit2gtk-4.1-dev
+          #     libxcb1-dev libxcb-render0-dev libxcb-shm0-dev libxcb-xkb-dev
+          #     libxcb-randr0-dev libxcb-shape0-dev libxcb-sync-dev libxcb-xfixes0-dev
+          #     libxcb-xinerama0-dev libxcb-composite0-dev libxcb-damage0-dev
+          #     libxcb-dpms0-dev libxcb-dri2-0-dev libxcb-dri3-dev libxcb-glx0-dev
+          #     libxcb-present-dev libxcb-record0-dev libxcb-res0-dev
+          #     libxcb-screensaver0-dev libxcb-xf86dri0-dev libxcb-xtest0-dev
+          #     libxcb-xinput-dev libxcb-xv0-dev libxcb-xvmc0-dev
+          #     libxcb-util-dev libxcb-icccm4-dev libxcb-image0-dev
+          #     libxcb-keysyms1-dev libxcb-render-util0-dev libxcb-cursor-dev
+          #     libxkbcommon-dev libxkbcommon-x11-dev
+          #     libwayland-dev libwayland-client0 libwayland-cursor0 libwayland-server0
+          #     wayland-protocols
+
+          # - name: Linux-arm64
+          #   os: ubuntu-24.04-arm
+          #   qt_platform: linux-g++
+          #   qt_configure_args: "-icu" # Native ARM64 build, no cross-compilation needed
+          #   cmake_generator: "Ninja"
+          #   qt_version: "6.10" # Match x64 version
+          #   packages: >-
+          #     build-essential ninja-build libgl1-mesa-dev libgles2-mesa-dev libvulkan-dev
+          #     libpulse-dev libasound2-dev libdbus-1-dev libfontconfig1-dev
+          #     libinput-dev libproxy-dev libssl-dev
+          #     libudev-dev libxi-dev libxml2-dev libxslt1-dev
+          #     libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly
+          #     libwebkit2gtk-4.1-dev
+
+          - name: macOS-arm64
+            os: macos-14
+            qt_platform: macx-clang
+            qt_configure_args: "-feature-appstore-compliant -DCMAKE_OSX_ARCHITECTURES=\"arm64\""
+            cmake_generator: "Xcode"
+            qt_version: "v6.5.8-lts-lgpl"
+            packages: "" # Most deps handled by Xcode
+
+          - name: macOS-x86_64
+            os: macos-14
+            qt_platform: macx-clang
+            qt_configure_args: "-feature-appstore-compliant -DCMAKE_OSX_ARCHITECTURES=\"x86_64\""
+            cmake_generator: "Xcode"
+            qt_version: "v6.5.8-lts-lgpl"
+            packages: "" # Most deps handled by Xcode
+
+          - name: Windows
+            os: windows-2022
+            qt_platform: win32-g++
+            qt_configure_args: ""
+            cmake_generator: "Ninja"
+            qt_version: "v6.5.8-lts-lgpl"
+            packages: "" # Installed via MSYS2 pacman
+
+          # Mobile Platforms (More complex setup, may need adjustments)
+          # - name: iOS
+          #   os: macos-latest
+          #   qt_platform: macx-ios-clang
+          #   qt_configure_args: "-sdk iphoneos -opengl es2 -xcb" # Example args, may need refinement
+          #   cmake_generator: "Xcode"
+          #   qt_version: "6.5"
+          #   packages: ""
+
+          # - name: Android
+          #   os: ubuntu-latest # Or macos-latest
+          #   qt_platform: android-clang
+          #   qt_configure_args: "-android-ndk <path_to_ndk> -android-sdk <path_to_sdk> -opengl es2" # Needs NDK/SDK setup
+          #   cmake_generator: "Ninja"
+          #   qt_version: "6.5"
+          #   packages: "openjdk-17-jdk ninja-build" # Example, needs Android SDK/NDK installation steps
+
+    name: Qt6 static (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - name: Checkout kormix-app
+      uses: actions/checkout@v4
+      with:
+        repository: kormix-io/kormix-app
+        path: kormix-app
+        token: ${{ secrets.KORMIX_GH_ACCESS_TOKEN }}
+        submodules: recursive
+
+    - name: Set up Ccache (Linux/macOS)
+      if: runner.os == 'Linux' || runner.os == 'macOS'
+      uses: hendrikmuhs/ccache-action@v1.2
+      with:
+        key: qt-build-${{ matrix.name }}
+        max-size: 1G # Adjust size as needed
+
+    - name: Install Linux dependencies
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        # Native builds on both x64 and arm64 runners - no cross-compilation needed
+        sudo apt-get install -y ${{ matrix.packages }} ccache
+        # echo "Removing libicu from system..."
+        # sudo apt-get purge -y libicu-dev
+
+    - name: Build static ICU (Linux only)
+      if: runner.os == 'Linux'
+      run: |
+        # Clone latest ICU from main branch
+        git clone --depth 1 -b release-77-1 https://github.com/unicode-org/icu.git ~/icu
+        cd ~/icu/icu4c/source
+        mkdir build-static && cd build-static
+        # Add -fPIC to CFLAGS and CXXFLAGS for Position Independent Code (needed for VST3 shared library)
+        export CFLAGS="-fPIC"
+        export CXXFLAGS="-fPIC"
+        ../runConfigureICU Linux --enable-static --disable-shared --prefix=$HOME/icu-static
+        make -j$(nproc)
+        make install
+
+    - name: Set ICU environment variables (Linux only)
+      if: runner.os == 'Linux'
+      run: |
+        echo "ICU_ROOT=$HOME/icu-static" >> $GITHUB_ENV
+        echo "ICU_LIBS=-L$HOME/icu-static/lib -licui18n -licuuc -licudata" >> $GITHUB_ENV
+        echo "ICU_CFLAGS=-I$HOME/icu-static/include" >> $GITHUB_ENV
+
+    - name: Install macOS dependencies (Xcode)
+      if: runner.os == 'macOS'
+      run: |
+        # Xcode Command Line Tools are usually pre-installed on GitHub runners
+        echo "Xcode should be available."
+        # If specific packages needed via brew, install here:
+        # brew install ninja ccache # Example if needed
+
+    - name: Set up MSYS2 MINGW64 (Windows)
+      if: runner.os == 'Windows'
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: MINGW64
+        update: true
+        install: >-
+          mingw-w64-x86_64-gcc
+          mingw-w64-x86_64-ninja
+          mingw-w64-x86_64-cmake
+          mingw-w64-x86_64-python
+          mingw-w64-x86_64-perl
+          git
+          make
+
+
+    # --- Qt Static Build ---
+    - name: Cache Qt Build
+      id: cache-qt
+      uses: actions/cache@v4
+      with:
+        path: ${{ github.workspace }}/kormix-app/qt6-static-build
+        key: ${{ runner.os }}-qt6-static-${{ hashFiles('kormix-app/CMakeLists.txt', 'kormix-app/src/**/CMakeLists.txt') }}-${{ hashFiles('.github/workflows/build-qt-static.yml') }}
+
+    - name: Build Qt Statically (macOS/Linux)
+      if: steps.cache-qt.outputs.cache-hit != 'true' && runner.os != 'Windows'
+      shell: bash
+      run: |
+        QT_VERSION_BRANCH=${{ matrix.qt_version }} # Use platform-specific Qt version
+        # --- Define paths relative to workspace root ---
+        QT_SOURCE_REL=qt-source
+        QT_BUILD_REL=qt-build
+        QT_INSTALL_REL=qt6-static-build
+        # Absolute path still needed for cache/artifact steps later
+        QT_INSTALL_ABS=${{ github.workspace }}/kormix-app/$QT_INSTALL_REL
+
+        MODULE_SUBSET="qtbase,qtdeclarative,qtsvg,qtwebsockets,qtmultimedia,qtwebchannel,qtshadertools" # Define the module subset
+
+        echo "Cloning Qt top-level repository ($QT_VERSION_BRANCH) to relative path: $QT_SOURCE_REL ..."
+        # Clone to relative path
+        git clone --branch $QT_VERSION_BRANCH --depth 1 --single-branch https://code.qt.io/qt/qt5.git "$QT_SOURCE_REL" || exit 1
+
+        echo "Changing to source directory: $QT_SOURCE_REL"
+        cd "$QT_SOURCE_REL" || exit 1 # cd into relative path
+
+        echo "Initializing submodule configurations ($MODULE_SUBSET)..."
+        ./init-repository --module-subset=$MODULE_SUBSET || exit 1
+
+        echo "Fetching required submodules (subset only)..."
+        # Don't use --init (re-inits ALL modules) or --depth 1 (fails on non-tip commits)
+        git submodule update --recursive --recommend-shallow || exit 1
+
+        echo "Changing back to workspace root..."
+        cd .. || exit 1 # Go up one level from source dir
+
+        WS_ROOT=$(pwd) 
+        echo "Workspace root is now: $WS_ROOT" # Should be github.workspace
+
+        echo "Creating build directory (relative): $QT_BUILD_REL"
+        mkdir -p "$QT_BUILD_REL" || exit 1 # mkdir relative path
+
+        echo "Changing to build directory (relative): $QT_BUILD_REL"
+        cd "$QT_BUILD_REL" || exit 1 # cd into relative path
+
+        echo "Listing available configure features..."
+        # Use relative path to configure script
+        ../"$QT_SOURCE_REL"/configure -list-features
+
+        echo "Listing available configure options..."
+        # Use relative path to configure script
+        ../"$QT_SOURCE_REL"/configure -help
+
+        echo "Configuring Qt from build directory..."
+
+        if [ "$RUNNER_OS" = "Linux" ]; then
+          export ICU_ROOT=$HOME/icu-static
+          export CMAKE_PREFIX_PATH="$ICU_ROOT${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}"
+        fi
+
+        # Base configure command
+        CONFIGURE_CMD=(../"$QT_SOURCE_REL"/configure -prefix "../$QT_INSTALL_REL" \
+          -release \
+          -static \
+          -opensource -confirm-license \
+          -no-pch \
+          -nomake examples -nomake tests \
+          -skip qtwebengine \
+          -skip qtmqtt \
+          -skip qtnetworkauth \
+          -skip qtopcua \
+          -skip qt3d \
+          -skip qt5compat \
+          -skip qtactiveqt \
+          -skip qtdoc \
+          -skip qtcharts \
+          -skip qtcoap \
+          -skip qtconnectivity \
+          -skip qtdatavis3d \
+          -skip qtgraphs \
+          -skip qtgrpc \
+          -skip qthttpserver \
+          -skip qtimageformats \
+          -skip qtlanguageserver \
+          -skip qtlocation \
+          -skip qtlottie \
+          -skip qtpositioning \
+          -skip qtquick3d \
+          -skip qtquick3dphysics \
+          -skip qtquickeffectmaker \
+          -skip qtquicktimeline \
+          -skip qtremoteobjects \
+          -skip qtscxml \
+          -skip qtsensors \
+          -skip qtserialbus \
+          -skip qtserialport \
+          -skip qtspeech \
+          -skip qttranslations \
+          -skip qtvirtualkeyboard \
+          -qt-zlib \
+          -qt-libpng \
+          -qt-libjpeg \
+          -qt-freetype \
+          -qt-harfbuzz \
+          -qt-pcre \
+          ${{ matrix.qt_configure_args }} \
+          -platform ${{ matrix.qt_platform }} )
+
+        # Removed to allow qttools and hopefully lrelease to be built (needed for GStreamer build and qt detection)
+        # -skip qttools \
+
+        # Conditional SSL backend
+        if [[ "$RUNNER_OS" == "macOS" ]]; then
+          CONFIGURE_CMD+=(-securetransport)
+        elif [[ "$RUNNER_OS" == "Windows" ]]; then
+          CONFIGURE_CMD+=(-schannel)
+        else
+          CONFIGURE_CMD+=(-openssl-linked)
+        fi
+
+        # Execute configure
+        echo "Running Configure: ${CONFIGURE_CMD[@]}"
+        "${CONFIGURE_CMD[@]}" || (cat config.log && exit 1) # Show log on failure
+
+        echo "Building Qt modules..."
+        # Use ccache if available
+        if command -v ccache &> /dev/null; then
+          export CXX="ccache g++" CC="ccache gcc" # Linux example
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            export CXX="ccache clang++" CC="ccache clang"
+          fi
+          ccache -z # Zero stats
+        fi
+
+        # Build with parallel jobs (already in build directory)
+        cmake --build . --parallel $(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2) || exit 1
+
+        echo "Installing Qt..."
+        # Install to the relative prefix path (already in build directory)
+        cmake --install . || exit 1
+
+        if command -v ccache &> /dev/null; then
+          ccache -s # Show stats
+        fi
+
+    - name: Build Qt Statically (Windows/MinGW)
+      if: steps.cache-qt.outputs.cache-hit != 'true' && runner.os == 'Windows'
+      shell: msys2 {0}
+      run: |
+        QT_VERSION_BRANCH=${{ matrix.qt_version }}
+        QT_SOURCE_REL=qt-source
+        QT_BUILD_REL=qt-build
+        QT_INSTALL_REL=qt6-static-build
+        QT_INSTALL_ABS=${{ github.workspace }}/kormix-app/$QT_INSTALL_REL
+
+        MODULE_SUBSET="qtbase,qtdeclarative,qtsvg,qtwebsockets,qtmultimedia,qtwebchannel,qtshadertools"
+
+        echo "Cloning Qt top-level repository ($QT_VERSION_BRANCH)..."
+        git clone --branch $QT_VERSION_BRANCH --depth 1 --single-branch https://code.qt.io/qt/qt5.git "$QT_SOURCE_REL" || exit 1
+
+        cd "$QT_SOURCE_REL" || exit 1
+        echo "Initializing submodule configurations ($MODULE_SUBSET)..."
+        ./init-repository --module-subset=$MODULE_SUBSET || exit 1
+        echo "Fetching required submodules (subset only)..."
+        # Don't use --init (re-inits ALL modules) or --depth 1 (fails on non-tip commits)
+        git submodule update --recursive --recommend-shallow || exit 1
+        cd .. || exit 1
+
+        mkdir -p "$QT_BUILD_REL" || exit 1
+        cd "$QT_BUILD_REL" || exit 1
+
+        echo "Configuring Qt with MinGW-w64..."
+        CONFIGURE_CMD=(../"$QT_SOURCE_REL"/configure -prefix "../$QT_INSTALL_REL" \
+          -release \
+          -static \
+          -opensource -confirm-license \
+          -no-pch \
+          -nomake examples -nomake tests \
+          -skip qtwebengine \
+          -skip qtmqtt \
+          -skip qtnetworkauth \
+          -skip qtopcua \
+          -skip qt3d \
+          -skip qt5compat \
+          -skip qtactiveqt \
+          -skip qtdoc \
+          -skip qtcharts \
+          -skip qtcoap \
+          -skip qtconnectivity \
+          -skip qtdatavis3d \
+          -skip qtgraphs \
+          -skip qtgrpc \
+          -skip qthttpserver \
+          -skip qtimageformats \
+          -skip qtlanguageserver \
+          -skip qtlocation \
+          -skip qtlottie \
+          -skip qtpositioning \
+          -skip qtquick3d \
+          -skip qtquick3dphysics \
+          -skip qtquickeffectmaker \
+          -skip qtquicktimeline \
+          -skip qtremoteobjects \
+          -skip qtscxml \
+          -skip qtsensors \
+          -skip qtserialbus \
+          -skip qtserialport \
+          -skip qtspeech \
+          -skip qttranslations \
+          -skip qtvirtualkeyboard \
+          -qt-zlib \
+          -qt-libpng \
+          -qt-libjpeg \
+          -qt-freetype \
+          -qt-harfbuzz \
+          -qt-pcre \
+          ${{ matrix.qt_configure_args }} \
+          -platform ${{ matrix.qt_platform }} \
+          -schannel)
+
+        echo "Running Configure: ${CONFIGURE_CMD[@]}"
+        "${CONFIGURE_CMD[@]}" || (cat config.log && exit 1)
+
+        echo "Building Qt modules..."
+        cmake --build . --parallel ${NUMBER_OF_PROCESSORS:-4} || exit 1
+
+        echo "Installing Qt..."
+        cmake --install . || exit 1
+
+    # --- Package and Upload Qt Build ---
+    - name: Package Qt Build
+      shell: bash
+      run: |
+        ARTIFACT_NAME="qt${{ matrix.qt_version }}-static-${{ matrix.name }}.zip"
+        echo "Creating archive: $ARTIFACT_NAME from qt6-static-build/"
+        cd "${{ github.workspace }}/kormix-app"
+        if [[ "$RUNNER_OS" == "Windows" ]]; then
+          7z a "${{ github.workspace }}/$ARTIFACT_NAME" -r qt6-static-build/* || exit 1
+        else
+          zip -r "${{ github.workspace }}/$ARTIFACT_NAME" qt6-static-build || exit 1
+        fi
+
+    - name: Upload Qt Build Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: qt${{ matrix.qt_version }}-static-${{ matrix.name }}
+        path: ${{ github.workspace }}/qt${{ matrix.qt_version }}-static-${{ matrix.name }}.zip
+
+
+  create-release:
+    name: Create Qt Release
+    needs: build
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: qt*-static-*
+          merge-multiple: true
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          repository: kormix-io/kormix-app
+          files: artifacts/*
+          tag_name: qt-static-rel5
+          name: Qt Static Build Release 5 (Windows MinGW-w64)
+          body: |
+            Static Qt builds for multiple platforms
+            
+            Contains:
+            - macOS Apple Silicon (arm64) - built on macos-14
+            - macOS Intel (x86_64) - built on macos-14
+            - Windows (x64)
+        env:
+          GITHUB_TOKEN: ${{ secrets.KORMIX_GH_ACCESS_TOKEN }}
