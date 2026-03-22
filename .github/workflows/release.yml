@@ -985,26 +985,16 @@ jobs:
             - **macOS Apple Silicon (M-series)**: Download the `-arm64-Setup.pkg` file for macOS 11.0 or later on Apple Silicon
             - **macOS Intel**: Download the `-x86_64-Setup.pkg` file for macOS 11.0 or later on Intel processors
             - **Windows**: Download the `.exe` file for Windows 10+
-            - **Linux (x64)**: Download the AppImage file for Linux distributions
             
             **System Requirements:**
             - **macOS**: macOS 12.0+, Apple Silicon (M-series) or Intel processor
             - **Windows**: Windows 10+ (64-bit), Intel or AMD processor
-            - **Linux**: Any modern Linux distribution (x64)
             
             **Plugin Formats Included:**
             - **macOS** (both Intel and Apple Silicon): AU, AUv3, Standalone application
             - **Windows**: VST3, Standalone application
-            - **Linux** (x64): Standalone application (AppImage)
             
             All downloads are digitally signed and verified for security.
-            
-            **Linux Installation:**
-            1. Download the AppImage file
-            2. Make it executable: `chmod +x Kormix-*-x86_64.AppImage`
-            3. Run it: `./Kormix-*-x86_64.AppImage`
-            
-            The AppImage includes all required dependencies and should work on any modern Linux distribution.
             
             ---
             
