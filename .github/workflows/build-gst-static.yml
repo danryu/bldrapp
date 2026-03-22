@@ -109,6 +109,7 @@ jobs:
       # Windows: native build using MSYS2 UCRT64 (how GStreamer's own CI does it)
       # -----------------------------------------------------------------------
 
+      # Register `msys2` shell + toolchain only when building (not needed for verify/zip on cache hit).
       - name: Setup MSYS2 (Windows)
         if: matrix.platform == 'windows' && steps.cache-gst.outputs.cache-hit != 'true'
         uses: msys2/setup-msys2@v2
@@ -171,12 +172,13 @@ jobs:
           ls -lh install/lib/libgstreamer-full-1.0.a
           find install -name 'libgstqml6*.*'
 
+      # Use pwsh here — `shell: msys2 {0}` only works after msys2/setup-msys2, which we skip on cache hit.
       - name: Verify artifacts (Windows)
         if: matrix.platform == 'windows'
-        shell: msys2 {0}
+        shell: pwsh
         run: |
-          ls -lh install/lib/libgstreamer-full-1.0.a
-          find install -name 'libgstqml6*.*'
+          Get-Item install/lib/libgstreamer-full-1.0.a | Format-List Name, Length
+          Get-ChildItem -Recurse install -Filter 'libgstqml6*'
 
       - name: Archive install directory
         if: matrix.platform != 'windows'
@@ -186,10 +188,12 @@ jobs:
 
       - name: Archive install directory (Windows)
         if: matrix.platform == 'windows'
-        shell: msys2 {0}
+        shell: pwsh
         run: |
-          zip -r gstreamer-static-${{ matrix.artifact_suffix }}.zip install/
-          ls -lh gstreamer-static-${{ matrix.artifact_suffix }}.zip
+          $zip = "gstreamer-static-${{ matrix.artifact_suffix }}.zip"
+          if (Test-Path $zip) { Remove-Item $zip }
+          Compress-Archive -Path install -DestinationPath $zip -CompressionLevel Fastest
+          Get-Item $zip | Format-List Name, Length
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
