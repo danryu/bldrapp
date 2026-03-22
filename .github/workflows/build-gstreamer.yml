@@ -155,6 +155,7 @@ jobs:
         env:
           QT_PATH: ${{ github.workspace }}/qt6-static-build/qt6-static-build
           INSTALL_DEPS: "false"
+          MSYS: winsymlinks:nativestrict
         run: |
           chmod +x build_gstreamer.sh
           ./build_gstreamer.sh
