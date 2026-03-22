@@ -25,8 +25,9 @@ jobs:
             qt_version: "v6.5.8-lts-lgpl"
             packages: "" # Most deps handled by Xcode
 
+          # Intel runner: host tools (moc, qmake, …) must be x86_64.
           - name: macOS-x86_64
-            os: macos-14
+            os: macos-14-large
             qt_platform: macx-clang
             qt_configure_args: "-feature-appstore-compliant -DCMAKE_OSX_ARCHITECTURES=\"x86_64\""
             cmake_generator: "Xcode"
@@ -90,7 +91,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: ${{ github.workspace }}/kormix-app/qt6-static-build
-        key: ${{ runner.os }}-qt6-static-${{ hashFiles('kormix-app/CMakeLists.txt', 'kormix-app/src/**/CMakeLists.txt') }}-${{ hashFiles('.github/workflows/build-qt-static.yml') }}
+        key: ${{ runner.os }}-qt6-static-${{ matrix.name }}-${{ hashFiles('kormix-app/CMakeLists.txt', 'kormix-app/src/**/CMakeLists.txt') }}-${{ hashFiles('.github/workflows/build-qt-static.yml') }}
 
     - name: Build Qt Statically (macOS)
       if: steps.cache-qt.outputs.cache-hit != 'true' && runner.os == 'macOS'
@@ -346,7 +347,7 @@ jobs:
             
             Contains:
             - macOS Apple Silicon (arm64) - built on macos-14
-            - macOS Intel (x86_64) - built on macos-14
+            - macOS Intel (x86_64) - built on macos-14-large (host tools must match Intel CI)
             - Windows (x64)
         env:
           GITHUB_TOKEN: ${{ secrets.KORMIX_GH_ACCESS_TOKEN }}
