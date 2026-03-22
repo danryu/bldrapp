@@ -30,7 +30,7 @@ jobs:
           #   artifact_suffix: macOS-x86_64
           - platform: windows
             arch: x86_64
-            runner: ubuntu-24.04
+            runner: windows-2022
             qt_suffix: Windows
             artifact_suffix: Windows-x86_64
 
@@ -105,27 +105,30 @@ jobs:
           ./build_gstreamer.sh
 
       # -----------------------------------------------------------------------
-      # Windows: cross-compile from Linux using MinGW-w64
+      # Windows: native build using MSYS2 UCRT64 (how GStreamer's own CI does it)
       # -----------------------------------------------------------------------
 
-      - name: Install MinGW-w64 cross-compiler (Windows cross-build)
+      - name: Setup MSYS2 (Windows)
         if: matrix.platform == 'windows' && steps.cache-gst.outputs.cache-hit != 'true'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 mingw-w64-tools \
-            mingw-w64-x86-64-dev \
-            ninja-build pkg-config cmake python3 python3-pip bison flex nasm perl make \
-            qt6-tools-dev qt6-tools-dev-tools qt6-l10n-tools qt6-declarative-dev-tools
-          pip install meson
-          # Ubuntu 24.04's mingw-w64 headers are too old (missing d2d1_3.h etc.)
-          # Replace with latest from mingw-w64 source
-          echo "Updating MinGW-w64 headers from source..."
-          git clone --depth 1 https://github.com/mingw-w64/mingw-w64.git /tmp/mingw-w64-src
-          sudo cp -r /tmp/mingw-w64-src/mingw-w64-headers/include/* /usr/x86_64-w64-mingw32/include/
-          rm -rf /tmp/mingw-w64-src
-          # Verify
-          x86_64-w64-mingw32-gcc -E -x c - <<< '#include <d2d1_3.h>' > /dev/null 2>&1 \
-            && echo "d2d1_3.h: OK" || echo "d2d1_3.h: STILL NOT FOUND"
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-pkg-config
+            mingw-w64-ucrt-x86_64-meson
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-nasm
+            mingw-w64-ucrt-x86_64-python
+            make
+            git
+            bison
+            flex
+            perl
+            zip
+            unzip
 
       - name: Download Qt6 static (Windows)
         if: matrix.platform == 'windows' && steps.cache-gst.outputs.cache-hit != 'true'
@@ -140,33 +143,19 @@ jobs:
 
       - name: Extract Qt6 static (Windows)
         if: matrix.platform == 'windows' && steps.cache-gst.outputs.cache-hit != 'true'
+        shell: msys2 {0}
         run: |
           mkdir -p "${{ github.workspace }}/qt6-static-build"
           unzip qt-download/qtv6*.zip -d "${{ github.workspace }}/qt6-static-build"
           ls -la "${{ github.workspace }}/qt6-static-build"
 
-      - name: Build GStreamer (Windows cross-compile)
+      - name: Build GStreamer (Windows MSYS2 UCRT64)
         if: matrix.platform == 'windows' && steps.cache-gst.outputs.cache-hit != 'true'
+        shell: msys2 {0}
         env:
-          TARGET_PLATFORM: windows
           QT_PATH: ${{ github.workspace }}/qt6-static-build/qt6-static-build
           INSTALL_DEPS: "false"
         run: |
-          # Create wrapper scripts for native Qt tools that report the correct
-          # version (matching the Windows Qt libs) so meson's exact version check passes.
-          QT_LIBEXEC="${QT_PATH}/libexec"
-          mkdir -p "${QT_LIBEXEC}"
-          for tool in moc rcc uic lrelease qmltyperegistrar qmlcachegen; do
-            real="/usr/lib/qt6/libexec/${tool}"
-            [ ! -f "$real" ] && real="/usr/lib/qt6/bin/${tool}"
-            if [ -f "$real" ]; then
-              printf '#!/bin/bash\nif [ "$1" = "--version" ] || [ "$1" = "-v" ]; then\n  echo "6.5.7"\nelse\n  exec "%s" "$@"\nfi\n' "$real" > "${QT_LIBEXEC}/${tool}"
-              chmod +x "${QT_LIBEXEC}/${tool}"
-            fi
-          done
-          # qsb (Qt Shader Baker) - not available via apt; create version-spoofing stub
-          printf '#!/bin/bash\nif [ "$1" = "--version" ] || [ "$1" = "-v" ]; then\n  echo "6.5.7"\nelse\n  echo "qsb stub: $@" >&2\nfi\n' > "${QT_LIBEXEC}/qsb"
-          chmod +x "${QT_LIBEXEC}/qsb"
           chmod +x build_gstreamer.sh
           ./build_gstreamer.sh
 
