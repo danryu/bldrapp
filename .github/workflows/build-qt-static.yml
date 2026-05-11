@@ -17,30 +17,32 @@ jobs:
       fail-fast: false # Keep running other jobs even if one fails
       matrix:
         include:
+          # Qt 6.8 LTS line: use latest v6.8.x tag from code.qt.io/qt/qt5 (public mirror).
           - name: macOS-arm64
             os: macos-14
             qt_platform: macx-clang
             qt_configure_args: "-feature-appstore-compliant -DCMAKE_OSX_ARCHITECTURES=\"arm64\""
             cmake_generator: "Xcode"
-            qt_version: "v6.5.8-lts-lgpl"
+            qt_version: "v6.8.3"
             packages: "" # Most deps handled by Xcode
 
+          # --- Temporarily disabled: only macOS arm64 builds for now ---
           # Intel runner: host tools (moc, qmake, …) must be x86_64.
-          - name: macOS-x86_64
-            os: macos-14-large
-            qt_platform: macx-clang
-            qt_configure_args: "-feature-appstore-compliant -DCMAKE_OSX_ARCHITECTURES=\"x86_64\""
-            cmake_generator: "Xcode"
-            qt_version: "v6.5.8-lts-lgpl"
-            packages: "" # Most deps handled by Xcode
-
-          - name: Windows
-            os: windows-2022
-            qt_platform: win32-g++
-            qt_configure_args: ""
-            cmake_generator: "Ninja"
-            qt_version: "v6.5.8-lts-lgpl"
-            packages: "" # Installed via MSYS2 pacman
+          # - name: macOS-x86_64
+          #   os: macos-14-large
+          #   qt_platform: macx-clang
+          #   qt_configure_args: "-feature-appstore-compliant -DCMAKE_OSX_ARCHITECTURES=\"x86_64\""
+          #   cmake_generator: "Xcode"
+          #   qt_version: "v6.8.3"
+          #   packages: "" # Most deps handled by Xcode
+          #
+          # - name: Windows
+          #   os: windows-2022
+          #   qt_platform: win32-g++
+          #   qt_configure_args: ""
+          #   cmake_generator: "Ninja"
+          #   qt_version: "v6.8.3"
+          #   packages: "" # Installed via MSYS2 pacman
 
     name: Qt6 static (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
@@ -341,13 +343,11 @@ jobs:
           repository: kormix-io/kormix-app
           files: artifacts/*
           tag_name: qt-static-rel5
-          name: Qt Static Build Release 5 (Windows MinGW-w64)
+          name: Qt 6.8.x static (macOS arm64)
           body: |
-            Static Qt builds for multiple platforms
-            
-            Contains:
-            - macOS Apple Silicon (arm64) - built on macos-14
-            - macOS Intel (x86_64) - built on macos-14-large (host tools must match Intel CI)
-            - Windows (x64)
+            Static Qt 6.8.x builds (LTS line, v6.8.3 from code.qt.io mirror).
+
+            Currently published:
+            - macOS Apple Silicon (arm64) — macos-14
         env:
           GITHUB_TOKEN: ${{ secrets.KORMIX_GH_ACCESS_TOKEN }}
