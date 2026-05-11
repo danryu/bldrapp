@@ -24,6 +24,8 @@ jobs:
             qt_configure_args: "-feature-appstore-compliant -DCMAKE_OSX_ARCHITECTURES=\"arm64\""
             cmake_generator: "Xcode"
             qt_version: "v6.8.3"
+            # Pin to a release tag Qt Multimedia documents; bump when Qt’s bundled FFmpeg version changes.
+            ffmpeg_branch: "n6.1.2"
             packages: "" # Most deps handled by Xcode
 
           # --- Temporarily disabled: only macOS arm64 builds for now ---
@@ -34,6 +36,7 @@ jobs:
           #   qt_configure_args: "-feature-appstore-compliant -DCMAKE_OSX_ARCHITECTURES=\"x86_64\""
           #   cmake_generator: "Xcode"
           #   qt_version: "v6.8.3"
+          #   ffmpeg_branch: "n6.1.2"
           #   packages: "" # Most deps handled by Xcode
           #
           # - name: Windows
@@ -42,6 +45,7 @@ jobs:
           #   qt_configure_args: ""
           #   cmake_generator: "Ninja"
           #   qt_version: "v6.8.3"
+          #   ffmpeg_branch: "n6.1.2"
           #   packages: "" # Installed via MSYS2 pacman
 
     name: Qt6 static (${{ matrix.name }})
@@ -66,10 +70,10 @@ jobs:
     - name: Install macOS dependencies (Xcode)
       if: runner.os == 'macOS'
       run: |
-        # Xcode Command Line Tools are usually pre-installed on GitHub runners
-        echo "Xcode should be available."
-        # If specific packages needed via brew, install here:
-        # brew install ninja ccache # Example if needed
+        echo "Xcode / CLT are provided on GitHub-hosted runners."
+        # FFmpeg build deps (Qt doc: https://doc.qt.io/qt-6/qtmultimedia-building-ffmpeg-macos.html )
+        brew update
+        brew install yasm
 
     - name: Set up MSYS2 MINGW64 (Windows)
       if: runner.os == 'Windows'
@@ -83,6 +87,9 @@ jobs:
           mingw-w64-x86_64-cmake
           mingw-w64-x86_64-python
           mingw-w64-x86_64-perl
+          mingw-w64-x86_64-yasm
+          mingw-w64-x86_64-nasm
+          mingw-w64-x86_64-diffutils
           git
           make
 
@@ -93,7 +100,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: ${{ github.workspace }}/kormix-app/qt6-static-build
-        key: ${{ runner.os }}-qt6-static-${{ matrix.name }}-${{ hashFiles('kormix-app/CMakeLists.txt', 'kormix-app/src/**/CMakeLists.txt') }}-${{ hashFiles('.github/workflows/build-qt-static.yml') }}
+        key: ${{ runner.os }}-qt6-static-${{ matrix.name }}-${{ matrix.ffmpeg_branch }}-${{ hashFiles('kormix-app/CMakeLists.txt', 'kormix-app/src/**/CMakeLists.txt') }}-${{ hashFiles('.github/workflows/build-qt-static.yml') }}
 
     - name: Build Qt Statically (macOS)
       if: steps.cache-qt.outputs.cache-hit != 'true' && runner.os == 'macOS'
@@ -127,7 +134,36 @@ jobs:
         cd .. || exit 1 # Go up one level from source dir
 
         WS_ROOT=$(pwd) 
-        echo "Workspace root is now: $WS_ROOT" # Should be github.workspace
+        echo "Workspace root is now: $WS_ROOT" # github.workspace/kormix-app when using defaults.
+
+        # --- Static FFmpeg (required for fully static Qt Multimedia; Homebrew is shared-only) ---
+        # Qt docs: https://doc.qt.io/qt-6/qtmultimedia-building-ffmpeg-macos.html
+        FFMPEG_BRANCH="${{ matrix.ffmpeg_branch }}"
+        FFMPEG_SRC_REL=ffmpeg-source
+        FFMPEG_BUILD_REL=ffmpeg-build
+        FFMPEG_INSTALL_ABS="${WS_ROOT}/ffmpeg-install"
+        echo "Building static FFmpeg (${FFMPEG_BRANCH}) -> ${FFMPEG_INSTALL_ABS}"
+        rm -rf "${FFMPEG_SRC_REL}" "${FFMPEG_BUILD_REL}" "${FFMPEG_INSTALL_ABS}"
+        git clone --branch "${FFMPEG_BRANCH}" --depth 1 https://git.ffmpeg.org/ffmpeg.git "${FFMPEG_SRC_REL}" || exit 1
+        mkdir -p "${FFMPEG_BUILD_REL}" || exit 1
+        cd "${FFMPEG_BUILD_REL}" || exit 1
+        # Static libs: Qt doc says omit --enable-shared (contrast with shared example).
+        "../${FFMPEG_SRC_REL}/configure" \
+          --prefix="${FFMPEG_INSTALL_ABS}" \
+          --disable-doc \
+          --enable-network \
+          --enable-static \
+          --enable-pic \
+          --disable-programs \
+          --pkg-config-flags="--static" \
+          || exit 1
+        make -j"$(sysctl -n hw.ncpu 2>/dev/null || echo 4)" install || exit 1
+        cd "${WS_ROOT}" || exit 1
+        if [[ ! -f "${FFMPEG_INSTALL_ABS}/lib/pkgconfig/libavcodec.pc" ]]; then
+          echo "FFmpeg libavcodec.pc missing under ${FFMPEG_INSTALL_ABS}"
+          ls -la "${FFMPEG_INSTALL_ABS}/lib" || true
+          exit 1
+        fi
 
         echo "Creating build directory (relative): $QT_BUILD_REL"
         mkdir -p "$QT_BUILD_REL" || exit 1 # mkdir relative path
@@ -144,14 +180,16 @@ jobs:
         ../"$QT_SOURCE_REL"/configure -help
 
         echo "Configuring Qt from build directory..."
+        echo "Using static FFmpeg prefix for Qt Multimedia: ${FFMPEG_INSTALL_ABS}"
 
-        # Base configure command
+        # Base configure command (-ffmpeg-deploy omitted: no shared FFmpeg libs to copy)
         CONFIGURE_CMD=(../"$QT_SOURCE_REL"/configure -prefix "../$QT_INSTALL_REL" \
           -release \
           -static \
           -opensource -confirm-license \
           -no-pch \
           -nomake examples -nomake tests \
+          -ffmpeg-dir "${FFMPEG_INSTALL_ABS}" \
           -skip qtwebengine \
           -skip qtmqtt \
           -skip qtnetworkauth \
@@ -203,6 +241,12 @@ jobs:
         echo "Running Configure: ${CONFIGURE_CMD[@]}"
         "${CONFIGURE_CMD[@]}" || (cat config.log && exit 1) # Show log on failure
 
+        echo "----- config.summary (FFmpeg / Multimedia plugin check) -----"
+        if [[ -f config.summary ]]; then
+          grep -E -i 'ffmpeg|multimedia|plugin' config.summary || true
+        fi
+        echo "--------------------------------------------------------------"
+
         echo "Building Qt modules..."
         if command -v ccache &> /dev/null; then
           export CXX="ccache clang++" CC="ccache clang"
@@ -243,16 +287,44 @@ jobs:
         git submodule update --recursive --recommend-shallow || exit 1
         cd .. || exit 1
 
+        WS_ROOT=$(pwd)
+
+        # --- Static FFmpeg (MinGW): https://doc.qt.io/qt-6/qtmultimedia-building-ffmpeg-windows.html
+        FFMPEG_BRANCH="${{ matrix.ffmpeg_branch }}"
+        FFMPEG_SRC_REL=ffmpeg-source
+        FFMPEG_BUILD_REL=ffmpeg-build
+        FFMPEG_INSTALL_ABS="${WS_ROOT}/ffmpeg-install"
+        echo "Building static FFmpeg (${FFMPEG_BRANCH}) -> ${FFMPEG_INSTALL_ABS}"
+        rm -rf "${FFMPEG_SRC_REL}" "${FFMPEG_BUILD_REL}" "${FFMPEG_INSTALL_ABS}"
+        git clone --branch "${FFMPEG_BRANCH}" --depth 1 https://git.ffmpeg.org/ffmpeg.git "${FFMPEG_SRC_REL}" || exit 1
+        mkdir -p "${FFMPEG_BUILD_REL}" || exit 1
+        cd "${FFMPEG_BUILD_REL}" || exit 1
+        # Static libs: Qt doc says omit --enable-shared (contrast with shared example).
+        "../${FFMPEG_SRC_REL}/configure" \
+          --prefix="${FFMPEG_INSTALL_ABS}" \
+          --disable-doc \
+          --enable-network \
+          --enable-static \
+          --enable-pic \
+          --disable-programs \
+          --pkg-config-flags="--static" \
+          --target-os=mingw32 \
+          || exit 1
+        make -j"${NUMBER_OF_PROCESSORS:-4}" install || exit 1
+        cd "${WS_ROOT}" || exit 1
+
         mkdir -p "$QT_BUILD_REL" || exit 1
         cd "$QT_BUILD_REL" || exit 1
 
         echo "Configuring Qt with MinGW-w64..."
+        echo "Using static FFmpeg prefix: ${FFMPEG_INSTALL_ABS}"
         CONFIGURE_CMD=(../"$QT_SOURCE_REL"/configure -prefix "../$QT_INSTALL_REL" \
           -release \
           -static \
           -opensource -confirm-license \
           -no-pch \
           -nomake examples -nomake tests \
+          -ffmpeg-dir "${FFMPEG_INSTALL_ABS}" \
           -skip qtwebengine \
           -skip qtmqtt \
           -skip qtnetworkauth \
@@ -297,6 +369,12 @@ jobs:
 
         echo "Running Configure: ${CONFIGURE_CMD[@]}"
         "${CONFIGURE_CMD[@]}" || (cat config.log && exit 1)
+
+        echo "----- config.summary (FFmpeg / Multimedia plugin check) -----"
+        if [[ -f config.summary ]]; then
+          grep -E -i 'ffmpeg|multimedia|plugin' config.summary || true
+        fi
+        echo "--------------------------------------------------------------"
 
         echo "Building Qt modules..."
         cmake --build . --parallel ${NUMBER_OF_PROCESSORS:-4} || exit 1
@@ -346,6 +424,12 @@ jobs:
           name: Qt 6.8.x static (macOS arm64)
           body: |
             Static Qt 6.8.x builds (LTS line, v6.8.3 from code.qt.io mirror).
+
+            **FFmpeg** is built **from source as static libraries** (see Qt Multimedia docs), then
+            Qt is configured with `-ffmpeg-dir` pointing at that prefix — not Homebrew/shared FFmpeg.
+
+            Matrix key `ffmpeg_branch` pins the release tag (e.g. `n6.1.2`); align with Qt’s
+            documented FFmpeg version when upgrading Qt.
 
             Currently published:
             - macOS Apple Silicon (arm64) — macos-14
