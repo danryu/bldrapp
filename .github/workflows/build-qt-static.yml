@@ -118,9 +118,9 @@ jobs:
         # Absolute path still needed for cache/artifact steps later
         QT_INSTALL_ABS=${{ github.workspace }}/kormix-app/$QT_INSTALL_REL
 
-        # qt5 .gitmodules: qtmultimedia *recommends* qtquick3d; qtquick3d recommends qtquicktimeline.
-        # Prefix with '-' to drop those optional repos. qtimageformats + qtlanguageserver are included (qtdeclarative recommends). No qtwebchannel — not used by kormix-app.
-        MODULE_SUBSET="qtbase,qtdeclarative,qtsvg,qtwebsockets,qtmultimedia,qtshadertools,-qtquick3d,-qtquicktimeline"
+        # qt5 .gitmodules: qtmultimedia *recommends* qtquick3d; exclude those and qtquicktimeline.
+        # qtimageformats + qtlanguageserver: qtdeclarative recommends (kept). qttools: not -skip'd in configure (lrelease).
+        MODULE_SUBSET="qtbase,qtdeclarative,qtsvg,qtwebsockets,qtmultimedia,qtshadertools,qtimageformats,qtlanguageserver,qttools,-qtquick3d,-qtquicktimeline"
 
         echo "Cloning Qt top-level repository ($QT_VERSION_BRANCH) to relative path: $QT_SOURCE_REL ..."
         # Clone to relative path
@@ -130,12 +130,20 @@ jobs:
         cd "$QT_SOURCE_REL" || exit 1 # cd into relative path
 
         echo "Initializing submodule configurations ($MODULE_SUBSET)..."
-        # --no-update: avoid init-repository's non-shallow fetch; we shallow-clone below.
+        # --no-update: recursive init inside init-repository uses submodule subset "all" per nested
+        # .gitmodules (huge). We fetch below ourselves.
         ./init-repository --module-subset=$MODULE_SUBSET --no-update || exit 1
 
         echo "Fetching required submodules (subset only, shallow + parallel)..."
+        # Do NOT use `git submodule update --init`: --init re-registers every module from the qt5
+        # .gitmodules (qtwebengine, qt3d, …) and blows up CI. init-repository already ran
+        # `git submodule init` for MODULE_SUBSET only.
         NPROC=$(sysctl -n hw.ncpu 2>/dev/null || echo 4)
-        git submodule update --init --recursive --depth 1 --jobs "$NPROC" || exit 1
+        git submodule update --recursive --depth 1 --jobs "$NPROC" || exit 1
+        # qttools sources need nested qlitehtml/litehtml for build (small vs full superrepo init).
+        if [[ -d qttools ]]; then
+          git -C qttools submodule update --init --recursive --depth 1 --jobs "$NPROC" || exit 1
+        fi
 
         echo "Changing back to workspace root..."
         cd .. || exit 1 # Go up one level from source dir
@@ -155,12 +163,19 @@ jobs:
         mkdir -p "${FFMPEG_BUILD_REL}" || exit 1
         cd "${FFMPEG_BUILD_REL}" || exit 1
         # Static libs: Qt doc says omit --enable-shared (contrast with shared example).
+        # No X11: FFmpeg exposes --disable-xlib (there is no --disable-x11); disable XCB grab too
+        # so brew/pkg-config does not pull X11 on CI runners.
         "../${FFMPEG_SRC_REL}/configure" \
           --prefix="${FFMPEG_INSTALL_ABS}" \
           --disable-doc \
           --enable-network \
           --enable-pic \
           --disable-programs \
+          --disable-xlib \
+          --disable-libxcb \
+          --disable-libxcb-shm \
+          --disable-libxcb-shape \
+          --disable-libxcb-xfixes \
           --pkg-config-flags="--static" \
           || exit 1
         make -j"$(sysctl -n hw.ncpu 2>/dev/null || echo 4)" install || exit 1
@@ -279,7 +294,7 @@ jobs:
         QT_INSTALL_REL=qt6-static-build
         QT_INSTALL_ABS=${{ github.workspace }}/kormix-app/$QT_INSTALL_REL
 
-        MODULE_SUBSET="qtbase,qtdeclarative,qtsvg,qtwebsockets,qtmultimedia,qtshadertools,-qtquick3d,-qtquicktimeline"
+        MODULE_SUBSET="qtbase,qtdeclarative,qtsvg,qtwebsockets,qtmultimedia,qtshadertools,qtimageformats,qtlanguageserver,qttools,-qtquick3d,-qtquicktimeline"
 
         echo "Cloning Qt top-level repository ($QT_VERSION_BRANCH)..."
         git clone --branch $QT_VERSION_BRANCH --depth 1 --single-branch https://code.qt.io/qt/qt5.git "$QT_SOURCE_REL" || exit 1
@@ -288,7 +303,10 @@ jobs:
         echo "Initializing submodule configurations ($MODULE_SUBSET)..."
         ./init-repository --module-subset=$MODULE_SUBSET --no-update || exit 1
         echo "Fetching required submodules (subset only, shallow + parallel)..."
-        git submodule update --init --recursive --depth 1 --jobs "${NUMBER_OF_PROCESSORS:-4}" || exit 1
+        git submodule update --recursive --depth 1 --jobs "${NUMBER_OF_PROCESSORS:-4}" || exit 1
+        if [[ -d qttools ]]; then
+          git -C qttools submodule update --init --recursive --depth 1 --jobs "${NUMBER_OF_PROCESSORS:-4}" || exit 1
+        fi
         cd .. || exit 1
 
         WS_ROOT=$(pwd)
