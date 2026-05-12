@@ -3,9 +3,6 @@ name: 01 - Build GST static
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
 
 permissions:
   contents: write
