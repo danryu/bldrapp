@@ -152,7 +152,6 @@ jobs:
           --prefix="${FFMPEG_INSTALL_ABS}" \
           --disable-doc \
           --enable-network \
-          --enable-static \
           --enable-pic \
           --disable-programs \
           --pkg-config-flags="--static" \
@@ -182,14 +181,14 @@ jobs:
         echo "Configuring Qt from build directory..."
         echo "Using static FFmpeg prefix for Qt Multimedia: ${FFMPEG_INSTALL_ABS}"
 
-        # Base configure command (-ffmpeg-deploy omitted: no shared FFmpeg libs to copy)
+        # FFmpeg path: Qt 6.8+ uses CMake via "-- -DFFMPEG_DIR=..." (not configure's -ffmpeg-dir).
+        # See https://doc.qt.io/qt-6.8/qtmultimedia-building-from-source.html
         CONFIGURE_CMD=(../"$QT_SOURCE_REL"/configure -prefix "../$QT_INSTALL_REL" \
           -release \
           -static \
           -opensource -confirm-license \
           -no-pch \
           -nomake examples -nomake tests \
-          -ffmpeg-dir "${FFMPEG_INSTALL_ABS}" \
           -skip qtwebengine \
           -skip qtmqtt \
           -skip qtnetworkauth \
@@ -236,6 +235,7 @@ jobs:
 
         # SSL backend (macOS only in this job)
         CONFIGURE_CMD+=(-securetransport)
+        CONFIGURE_CMD+=(-- -DFFMPEG_DIR="${FFMPEG_INSTALL_ABS}")
 
         # Execute configure
         echo "Running Configure: ${CONFIGURE_CMD[@]}"
@@ -304,7 +304,6 @@ jobs:
           --prefix="${FFMPEG_INSTALL_ABS}" \
           --disable-doc \
           --enable-network \
-          --enable-static \
           --enable-pic \
           --disable-programs \
           --pkg-config-flags="--static" \
@@ -324,7 +323,6 @@ jobs:
           -opensource -confirm-license \
           -no-pch \
           -nomake examples -nomake tests \
-          -ffmpeg-dir "${FFMPEG_INSTALL_ABS}" \
           -skip qtwebengine \
           -skip qtmqtt \
           -skip qtnetworkauth \
@@ -366,6 +364,7 @@ jobs:
           ${{ matrix.qt_configure_args }} \
           -platform ${{ matrix.qt_platform }} \
           -schannel)
+        CONFIGURE_CMD+=(-- -DFFMPEG_DIR="${FFMPEG_INSTALL_ABS}")
 
         echo "Running Configure: ${CONFIGURE_CMD[@]}"
         "${CONFIGURE_CMD[@]}" || (cat config.log && exit 1)
@@ -426,7 +425,7 @@ jobs:
             Static Qt 6.8.x builds (LTS line, v6.8.3 from code.qt.io mirror).
 
             **FFmpeg** is built **from source as static libraries** (see Qt Multimedia docs), then
-            Qt is configured with `-ffmpeg-dir` pointing at that prefix — not Homebrew/shared FFmpeg.
+            Qt is configured with `configure -- -DFFMPEG_DIR=<prefix>` (Qt 6.8 docs) — not Homebrew/shared FFmpeg.
 
             Matrix key `ffmpeg_branch` pins the release tag (e.g. `n6.1.2`); align with Qt’s
             documented FFmpeg version when upgrading Qt.
