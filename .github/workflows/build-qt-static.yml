@@ -55,6 +55,7 @@ jobs:
     - name: Checkout kormix-app
       uses: actions/checkout@v4
       with:
+        fetch-depth: 1
         repository: kormix-io/kormix-app
         path: kormix-app
         token: ${{ secrets.KORMIX_GH_ACCESS_TOKEN }}
@@ -95,12 +96,15 @@ jobs:
 
 
     # --- Qt Static Build ---
-    - name: Cache Qt Build
+    - name: Cache Qt + FFmpeg install trees
       id: cache-qt
       uses: actions/cache@v4
       with:
-        path: ${{ github.workspace }}/kormix-app/qt6-static-build
-        key: ${{ runner.os }}-qt6-static-${{ matrix.name }}-${{ matrix.ffmpeg_branch }}-${{ hashFiles('kormix-app/CMakeLists.txt', 'kormix-app/src/**/CMakeLists.txt') }}-${{ hashFiles('.github/workflows/build-qt-static.yml') }}
+        path: |
+          ${{ github.workspace }}/kormix-app/qt6-static-build
+          ${{ github.workspace }}/kormix-app/ffmpeg-install
+        # Bump suffix when cache contents change (e.g. adding ffmpeg-install) so old single-path caches are not reused.
+        key: ${{ runner.os }}-qt6-static-${{ matrix.name }}-${{ matrix.ffmpeg_branch }}-${{ hashFiles('kormix-app/CMakeLists.txt', 'kormix-app/src/**/CMakeLists.txt') }}-${{ hashFiles('.github/workflows/build-qt-static.yml') }}-qt+ffmpeg-v1
 
     - name: Build Qt Statically (macOS)
       if: steps.cache-qt.outputs.cache-hit != 'true' && runner.os == 'macOS'
@@ -114,7 +118,9 @@ jobs:
         # Absolute path still needed for cache/artifact steps later
         QT_INSTALL_ABS=${{ github.workspace }}/kormix-app/$QT_INSTALL_REL
 
-        MODULE_SUBSET="qtbase,qtdeclarative,qtsvg,qtwebsockets,qtmultimedia,qtwebchannel,qtshadertools" # Define the module subset
+        # qt5 .gitmodules: qtmultimedia *recommends* qtquick3d; qtquick3d recommends qtquicktimeline.
+        # Prefix with '-' to drop those optional repos. qtimageformats + qtlanguageserver are included (qtdeclarative recommends). No qtwebchannel — not used by kormix-app.
+        MODULE_SUBSET="qtbase,qtdeclarative,qtsvg,qtwebsockets,qtmultimedia,qtshadertools,-qtquick3d,-qtquicktimeline"
 
         echo "Cloning Qt top-level repository ($QT_VERSION_BRANCH) to relative path: $QT_SOURCE_REL ..."
         # Clone to relative path
@@ -124,11 +130,12 @@ jobs:
         cd "$QT_SOURCE_REL" || exit 1 # cd into relative path
 
         echo "Initializing submodule configurations ($MODULE_SUBSET)..."
-        ./init-repository --module-subset=$MODULE_SUBSET || exit 1
+        # --no-update: avoid init-repository's non-shallow fetch; we shallow-clone below.
+        ./init-repository --module-subset=$MODULE_SUBSET --no-update || exit 1
 
-        echo "Fetching required submodules (subset only)..."
-        # Don't use --init (re-inits ALL modules) or --depth 1 (fails on non-tip commits)
-        git submodule update --recursive --recommend-shallow || exit 1
+        echo "Fetching required submodules (subset only, shallow + parallel)..."
+        NPROC=$(sysctl -n hw.ncpu 2>/dev/null || echo 4)
+        git submodule update --init --recursive --depth 1 --jobs "$NPROC" || exit 1
 
         echo "Changing back to workspace root..."
         cd .. || exit 1 # Go up one level from source dir
@@ -204,8 +211,6 @@ jobs:
           -skip qtgraphs \
           -skip qtgrpc \
           -skip qthttpserver \
-          -skip qtimageformats \
-          -skip qtlanguageserver \
           -skip qtlocation \
           -skip qtlottie \
           -skip qtpositioning \
@@ -274,17 +279,16 @@ jobs:
         QT_INSTALL_REL=qt6-static-build
         QT_INSTALL_ABS=${{ github.workspace }}/kormix-app/$QT_INSTALL_REL
 
-        MODULE_SUBSET="qtbase,qtdeclarative,qtsvg,qtwebsockets,qtmultimedia,qtwebchannel,qtshadertools"
+        MODULE_SUBSET="qtbase,qtdeclarative,qtsvg,qtwebsockets,qtmultimedia,qtshadertools,-qtquick3d,-qtquicktimeline"
 
         echo "Cloning Qt top-level repository ($QT_VERSION_BRANCH)..."
         git clone --branch $QT_VERSION_BRANCH --depth 1 --single-branch https://code.qt.io/qt/qt5.git "$QT_SOURCE_REL" || exit 1
 
         cd "$QT_SOURCE_REL" || exit 1
         echo "Initializing submodule configurations ($MODULE_SUBSET)..."
-        ./init-repository --module-subset=$MODULE_SUBSET || exit 1
-        echo "Fetching required submodules (subset only)..."
-        # Don't use --init (re-inits ALL modules) or --depth 1 (fails on non-tip commits)
-        git submodule update --recursive --recommend-shallow || exit 1
+        ./init-repository --module-subset=$MODULE_SUBSET --no-update || exit 1
+        echo "Fetching required submodules (subset only, shallow + parallel)..."
+        git submodule update --init --recursive --depth 1 --jobs "${NUMBER_OF_PROCESSORS:-4}" || exit 1
         cd .. || exit 1
 
         WS_ROOT=$(pwd)
@@ -338,8 +342,6 @@ jobs:
           -skip qtgraphs \
           -skip qtgrpc \
           -skip qthttpserver \
-          -skip qtimageformats \
-          -skip qtlanguageserver \
           -skip qtlocation \
           -skip qtlottie \
           -skip qtpositioning \
@@ -382,16 +384,24 @@ jobs:
         cmake --install . || exit 1
 
     # --- Package and Upload Qt Build ---
-    - name: Package Qt Build
+    - name: Package Qt + FFmpeg (release zip)
       shell: bash
       run: |
         ARTIFACT_NAME="qt${{ matrix.qt_version }}-static-${{ matrix.name }}.zip"
-        echo "Creating archive: $ARTIFACT_NAME from qt6-static-build/"
         cd "${{ github.workspace }}/kormix-app"
+        if [[ ! -d qt6-static-build ]]; then
+          echo "Missing qt6-static-build"; exit 1
+        fi
+        if [[ ! -d ffmpeg-install ]] || [[ ! -f ffmpeg-install/lib/pkgconfig/libavcodec.pc ]]; then
+          echo "Missing ffmpeg-install (expected lib/pkgconfig/libavcodec.pc)"
+          ls -la || true
+          exit 1
+        fi
+        echo "Creating $ARTIFACT_NAME with qt6-static-build/ and ffmpeg-install/"
         if [[ "$RUNNER_OS" == "Windows" ]]; then
-          7z a "${{ github.workspace }}/$ARTIFACT_NAME" -r qt6-static-build/* || exit 1
+          7z a "${{ github.workspace }}/$ARTIFACT_NAME" qt6-static-build ffmpeg-install || exit 1
         else
-          zip -r "${{ github.workspace }}/$ARTIFACT_NAME" qt6-static-build || exit 1
+          zip -r "${{ github.workspace }}/$ARTIFACT_NAME" qt6-static-build ffmpeg-install || exit 1
         fi
 
     - name: Upload Qt Build Artifact
@@ -424,8 +434,12 @@ jobs:
           body: |
             Static Qt 6.8.x builds (LTS line, v6.8.3 from code.qt.io mirror).
 
-            **FFmpeg** is built **from source as static libraries** (see Qt Multimedia docs), then
-            Qt is configured with `configure -- -DFFMPEG_DIR=<prefix>` (Qt 6.8 docs) — not Homebrew/shared FFmpeg.
+            Each zip contains **two top-level directories**:
+            - `qt6-static-build/` — Qt install prefix (pass as `CMAKE_PREFIX_PATH` or `-DCMAKE_PREFIX_PATH=...`).
+            - `ffmpeg-install/` — static FFmpeg used for Qt Multimedia (`FFMPEG_DIR` / `KORMIX_QT_FFMPEG_PREFIX` when linking kormix-app).
+
+            **FFmpeg** is built **from source** (see Qt Multimedia docs); Qt is configured with
+            `configure -- -DFFMPEG_DIR=<prefix>` (Qt 6.8 docs) — not Homebrew/shared FFmpeg.
 
             Matrix key `ffmpeg_branch` pins the release tag (e.g. `n6.1.2`); align with Qt’s
             documented FFmpeg version when upgrading Qt.
