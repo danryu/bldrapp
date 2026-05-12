@@ -1,9 +1,19 @@
 # Builds static Qt from sources checked out from kormix-io/kormix-app (CMake cache keys).
 # Publishes zip artifacts to a GitHub Release on the private repo kormix-io/kormix-app.
+#
+# Cache: a hit restores qt6-static-build + ffmpeg-install and skips the compile steps; only zips/uploads.
+# Pushing to this repo does not run this workflow unless you add a `push:` trigger. Use "Run workflow"
+# with "Force full rebuild" when you changed something not covered by the cache key, or bump -qt+ffmpeg-v* below.
 name: 00 - Build Qt Static
 
 on:
   workflow_dispatch:
+    inputs:
+      force_rebuild:
+        description: Ignore Actions cache and rebuild Qt + FFmpeg from scratch
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -103,8 +113,8 @@ jobs:
         path: |
           ${{ github.workspace }}/kormix-app/qt6-static-build
           ${{ github.workspace }}/kormix-app/ffmpeg-install
-        # Bump suffix when cache contents change (e.g. adding ffmpeg-install) so old single-path caches are not reused.
-        key: ${{ runner.os }}-qt6-static-${{ matrix.name }}-${{ matrix.ffmpeg_branch }}-${{ hashFiles('kormix-app/CMakeLists.txt', 'kormix-app/src/**/CMakeLists.txt') }}-${{ hashFiles('.github/workflows/build-qt-static.yml') }}-qt+ffmpeg-v1
+        # Bump `qt+ffmpeg-v*` after changing what must invalidate the install trees (or use force_rebuild).
+        key: ${{ runner.os }}-qt6-static-${{ matrix.name }}-${{ matrix.ffmpeg_branch }}-${{ hashFiles('kormix-app/CMakeLists.txt', 'kormix-app/src/**/CMakeLists.txt') }}-${{ hashFiles('.github/workflows/build-qt-static.yml') }}-qt+ffmpeg-v2${{ inputs.force_rebuild && format('-force-{0}-{1}', github.run_id, github.run_attempt) || '' }}
 
     - name: Build Qt Statically (macOS)
       if: steps.cache-qt.outputs.cache-hit != 'true' && runner.os == 'macOS'
