@@ -60,24 +60,37 @@ constexpr auto msft_return_type_is_void() -> bool {
     return norm.empty() || norm.str() == "void";
 }
 
+template <comptime::String func, bool TrailingReturn, bool HasCdecl>
+struct msft_bail_is_void_function_impl {
+    static constexpr auto sig = msft_func_sig<func>();
+    static constexpr auto space = comptime::find<sig, " ">;
+    static constexpr bool value =
+        space == std::string_view::npos ? true : msft_return_type_is_void<comptime::substr<sig, 0, space>()>();
+};
+
+template <comptime::String func>
+struct msft_bail_is_void_function_impl<func, true, false> {
+    static constexpr auto sig  = msft_func_sig<func>();
+    static constexpr auto arrow = comptime::find<sig, "->">;
+    static constexpr bool value =
+        msft_return_type_is_void<msft_ltrim_space<comptime::substr<sig, arrow + 2>>()>();
+};
+
+template <comptime::String func>
+struct msft_bail_is_void_function_impl<func, false, true> {
+    static constexpr auto sig       = msft_func_sig<func>();
+    static constexpr auto cdecl_pos = comptime::find<sig, " __cdecl ">;
+    static constexpr bool value     = msft_return_type_is_void<
+        msft_ltrim_space<comptime::remove_suffix<comptime::substr<sig, 0, cdecl_pos>, " ">>()>();
+};
+
 template <comptime::String func>
 constexpr auto bail_is_void_function() -> bool {
     constexpr auto sig = msft_func_sig<func>();
-    constexpr auto arrow = comptime::find<sig, "->">;
-    if constexpr(arrow != std::string_view::npos) {
-        return msft_return_type_is_void<msft_ltrim_space<comptime::substr<sig, arrow + 2>>()>();
-    } else if constexpr(comptime::find<sig, " __cdecl "> != std::string_view::npos) {
-        constexpr auto cdecl_pos = comptime::find<sig, " __cdecl ">;
-        return msft_return_type_is_void<
-            msft_ltrim_space<comptime::remove_suffix<comptime::substr<sig, 0, cdecl_pos>, " ">>()>();
-    } else {
-        constexpr auto space = comptime::find<sig, " ">;
-        if constexpr(space == std::string_view::npos) {
-            return true;
-        } else {
-            return msft_return_type_is_void<comptime::substr<sig, 0, space>()>();
-        }
-    }
+    return msft_bail_is_void_function_impl<
+        func,
+        comptime::find<sig, "->"> != std::string_view::npos,
+        comptime::find<sig, " __cdecl "> != std::string_view::npos>::value;
 }
 
 #define bail(...)                                                                                         \

@@ -31,19 +31,34 @@ constexpr auto coop_async_inner_is_void() -> bool {
     }
 }
 
+template <comptime::String func, bool TrailingReturn, bool HasCdecl>
+struct msft_coop_is_void_async_impl {
+    static constexpr bool value = true;
+};
+
+template <comptime::String func>
+struct msft_coop_is_void_async_impl<func, true, false> {
+    static constexpr auto sig  = msft_func_sig<func>();
+    static constexpr auto arrow = comptime::find<sig, "->">;
+    static constexpr bool value =
+        coop_async_inner_is_void<msft_ltrim_space<comptime::substr<sig, arrow + 2>>()>();
+};
+
+template <comptime::String func>
+struct msft_coop_is_void_async_impl<func, false, true> {
+    static constexpr auto sig       = msft_func_sig<func>();
+    static constexpr auto cdecl_pos = comptime::find<sig, " __cdecl ">;
+    static constexpr bool value     = coop_async_inner_is_void<
+        msft_ltrim_space<comptime::remove_suffix<comptime::substr<sig, 0, cdecl_pos>, " ">>()>();
+};
+
 template <comptime::String func>
 constexpr auto coop_is_void_async() -> bool {
     constexpr auto sig = msft_func_sig<func>();
-    constexpr auto arrow = comptime::find<sig, "->">;
-    if constexpr(arrow != std::string_view::npos) {
-        return coop_async_inner_is_void<msft_ltrim_space<comptime::substr<sig, arrow + 2>>()>();
-    } else if constexpr(comptime::find<sig, " __cdecl "> != std::string_view::npos) {
-        constexpr auto cdecl_pos = comptime::find<sig, " __cdecl ">;
-        return coop_async_inner_is_void<
-            msft_ltrim_space<comptime::remove_suffix<comptime::substr<sig, 0, cdecl_pos>, " ">>()>();
-    } else {
-        return true;
-    }
+    return msft_coop_is_void_async_impl<
+        func,
+        comptime::find<sig, "->"> != std::string_view::npos,
+        comptime::find<sig, " __cdecl "> != std::string_view::npos>::value;
 }
 
 #define coop_bail(...)                                                                                \
