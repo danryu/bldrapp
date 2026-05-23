@@ -204,7 +204,7 @@ jobs:
           tag: qt-static-rel5
           repository: kormix-io/kormix-app
           token: ${{ secrets.KORMIX_GH_ACCESS_TOKEN }}
-          fileName: qt6*-static-${{ matrix.qt_archive_suffix }}.zip
+          fileName: qtv6*-static-${{ matrix.qt_archive_suffix }}.zip
           out-file-path: qt
           extract: false
 
@@ -217,7 +217,7 @@ jobs:
           echo "Available Qt files:"
           ls -la qt/
           # Extract the actual downloaded file
-          ditto -x -k -v qt/qt6*.zip "${{ github.workspace }}/qt6-static-build"
+          ditto -x -k -v qt/qtv6*.zip "${{ github.workspace }}/qt6-static-build"
           echo "Verifying Qt installation..."
           ls -la "${{ github.workspace }}/qt6-static-build"
           echo "Checking for Qt6BundledZLIB..."
@@ -579,7 +579,7 @@ jobs:
           tag: qt-static-rel5
           repository: kormix-io/kormix-app
           token: ${{ secrets.KORMIX_GH_ACCESS_TOKEN }}
-          fileName: qt6*-static-${{ matrix.qt_archive_suffix }}.zip
+          fileName: qtv6*-static-${{ matrix.qt_archive_suffix }}.zip
           out-file-path: qt
           extract: false
 
@@ -592,7 +592,7 @@ jobs:
           echo "Available Qt files:"
           Get-ChildItem qt/
           # Extract the actual downloaded file
-          Expand-Archive -Path qt/qt6*.zip -DestinationPath "${{ github.workspace }}" -Force
+          Expand-Archive -Path qt/qtv6*.zip -DestinationPath "${{ github.workspace }}" -Force
 
       - name: Install WebView2 SDK (Windows)
         if: matrix.os == 'windows-2022'
