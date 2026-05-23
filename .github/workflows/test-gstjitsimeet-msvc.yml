@@ -80,12 +80,44 @@ jobs:
           ./deps/submod/submod clone
           echo "Submodule tree:"; ls -la submodules/
 
+      # coop pins cpp_std=c++23 and GCC-only warning flags; MSVC needs c++latest
+      # and cl-compatible options (same class of fix as gstjitsimeet below).
+      - name: Patch coop meson.build flags for MSVC (probe-time)
+        shell: bash
+        run: |
+          cd gstjitsimeet/deps/coop
+          python - <<'PY'
+          path = 'meson.build'
+          gcc_flags = ["'-Wfatal-errors'", "'-Wno-missing-field-initializers'"]
+          out, inserted = [], False
+          for ln in open(path, encoding='utf-8').read().splitlines():
+              if 'add_project_arguments' in ln and any(f in ln for f in gcc_flags):
+                  if not inserted:
+                      out += [
+                          "cpp_compiler = meson.get_compiler('cpp')",
+                          "if cpp_compiler.get_id() == 'msvc'",
+                          "  add_project_arguments(['/W3'], language: 'cpp')",
+                          "else",
+                          "  add_project_arguments('-Wfatal-errors', language: 'cpp')",
+                          "  add_project_arguments('-Wno-missing-field-initializers', language: 'cpp')",
+                          "endif",
+                      ]
+                      inserted = True
+                  continue
+              out.append(ln)
+          open(path, 'w', encoding='utf-8').write('\n'.join(out) + '\n')
+          print('patched coop meson.build' if inserted else 'NO MATCH — coop meson.build changed upstream')
+          PY
+          echo "--- coop meson.build (top) ---"; head -15 meson.build
+
       - name: Build coop (MSVC)
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           cd gstjitsimeet/deps/coop
           $prefix = "$env:GITHUB_WORKSPACE\gstjitsimeet\deps\coop-install"
-          meson setup build --buildtype=release --default-library=static --prefix="$prefix"
+          # MSVC meson backend accepts c++latest, not c++23.
+          meson setup build --buildtype=release --default-library=static --prefix="$prefix" -Dcpp_std=c++latest
           meson install -C build
           Get-ChildItem "$prefix\lib\pkgconfig"
 
@@ -130,5 +162,5 @@ jobs:
           Write-Host "PKG_CONFIG_PATH = $env:PKG_CONFIG_PATH"
           pkg-config --modversion gstreamer-1.0 gstreamer-rtp-1.0 openssl libwebsockets coop
           cd gstjitsimeet
-          meson setup builddir --buildtype=release
+          meson setup builddir --buildtype=release -Dcpp_std=c++latest
           meson compile -C builddir
