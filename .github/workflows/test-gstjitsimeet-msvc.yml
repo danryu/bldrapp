@@ -57,10 +57,48 @@ jobs:
           if (-not (Test-Path $gstPc)) { throw "Missing $gstPc after choco install" }
           Write-Host "Found $gstPc"
 
-      - name: Install openssl + libwebsockets via vcpkg (MSVC)
+      - name: Install openssl via vcpkg (MSVC)
         shell: pwsh
         run: |
-          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install openssl:x64-windows libwebsockets:x64-windows
+          $ErrorActionPreference = 'Stop'
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install openssl:x64-windows
+
+      # vcpkg's libwebsockets port does not ship a usable libwebsockets.pc for
+      # pkg-config-lite; build from source like gst-build does.
+      - name: Build libwebsockets from source (MSVC, pkg-config)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $prefix = "$env:GITHUB_WORKSPACE\lws-install"
+          git clone --depth 1 --branch v4.3.6 https://github.com/warmcat/libwebsockets.git lws-src
+          cd lws-src
+          cmake -B build -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_INSTALL_PREFIX="$prefix" `
+            -DLWS_WITH_SHARED=OFF `
+            -DLWS_WITH_STATIC=ON `
+            -DLWS_WITHOUT_TESTAPPS=ON `
+            -DLWS_WITHOUT_TEST_SERVER=ON `
+            -DLWS_WITHOUT_TEST_PING=ON `
+            -DLWS_WITHOUT_TEST_CLIENT=ON `
+            -DLWS_WITH_SSL=ON `
+            -DLWS_OPENSSL_SUPPORT=ON `
+            -DLWS_WITH_ZLIB=OFF `
+            -DLWS_WITHOUT_EXTENSIONS=ON `
+            -DLWS_IPV6=ON `
+            -DLWS_WITH_LIBUV=OFF `
+            -DLWS_WITH_LIBEVENT=OFF `
+            -DLWS_WITH_GLIB=OFF `
+            -DLWS_WITH_HTTP2=OFF `
+            -DLWS_WITH_MINIMAL_EXAMPLES=OFF `
+            -DLWS_LINK_TESTAPPS_DYNAMIC=OFF `
+            -DOPENSSL_ROOT_DIR="$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows" `
+            -DOPENSSL_USE_STATIC_LIBS=TRUE
+          cmake --build build --config Release
+          cmake --install build
+          $lwsPc = "$prefix\lib\pkgconfig\libwebsockets.pc"
+          if (-not (Test-Path $lwsPc)) { throw "Missing $lwsPc after libwebsockets install" }
+          Write-Host "Found $lwsPc"
 
       # submod + git operations need bash; symlinks must be real (the submodule tree
       # uses git-tracked symlinks). Cloning needs no toolchain.
@@ -161,8 +199,9 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $gst   = 'C:\Program Files\gstreamer\1.0\msvc_x86_64\lib\pkgconfig'
           $vcpkg = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\lib\pkgconfig"
+          $lws   = "$env:GITHUB_WORKSPACE\lws-install\lib\pkgconfig"
           $coop  = "$env:GITHUB_WORKSPACE\gstjitsimeet\deps\coop-install\lib\pkgconfig"
-          $env:PKG_CONFIG_PATH = "$gst;$vcpkg;$coop"
+          $env:PKG_CONFIG_PATH = "$gst;$vcpkg;$lws;$coop"
           Write-Host "PKG_CONFIG_PATH = $env:PKG_CONFIG_PATH"
           foreach ($pkg in @('gstreamer-1.0','gstreamer-rtp-1.0','openssl','libwebsockets','coop')) {
             $ver = pkg-config --modversion $pkg
