@@ -45,9 +45,13 @@ constexpr auto msft_sig_is_void_fn() -> bool {
     return false;
 }
 
-#define bail(...)                                                      \
-    CUTIL_MACROS_PRINT_FUNC(__VA_ARGS__);                                \
-    return msft_bail_empty{}
+#define bail(...)                                                                                \
+    CUTIL_MACROS_PRINT_FUNC(__VA_ARGS__);                                                          \
+    if constexpr(msft_sig_is_void_fn<CUTIL_COMPSTR(__FUNCSIG__)>()) {                              \
+        return;                                                                                    \
+    } else {                                                                                       \
+        return msft_bail_empty{};                                                                    \
+    }
 
 #define ensure(cond, ...)                                      \
     if(!(cond)) {                                              \
