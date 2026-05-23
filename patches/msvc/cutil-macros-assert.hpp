@@ -21,48 +21,29 @@
 //
 // returns automatically detected error value
 //
-// MSVC __FUNCSIG__ is only scanned for obvious void markers. Non-void error
-// paths use return {} (nullopt/nullptr/false/0).
+// Non-void error paths use return {} (nullopt/nullptr/false/0). Overload
+// resolution picks void vs value return without parsing __FUNCSIG__.
 
-template <comptime::String func>
-constexpr auto msft_func_sig() -> auto {
-    constexpr auto s1 = comptime::remove_prefix<func, "static ">;
-    constexpr auto s2 = comptime::remove_prefix<s1, "virtual ">;
-    return comptime::remove_prefix<s2, "const ">();
+struct msft_bail_empty {
+    template <class T>
+    operator T() const {
+        return {};
+    }
+};
+
+template <class V, class NV>
+auto msft_bail(V v, NV nv) -> decltype(v(), void()) {
+    v();
 }
 
-template <comptime::String sig>
-constexpr auto msft_sig_has_void_return() -> bool {
-    if constexpr(comptime::find<sig, "-> void"> != std::string_view::npos) {
-        return true;
-    }
-    if constexpr(comptime::find<sig, "->void"> != std::string_view::npos) {
-        return true;
-    }
-    if constexpr(comptime::starts_with<sig, "void __cdecl ">) {
-        return true;
-    }
-    if constexpr(comptime::starts_with<sig, "void __stdcall ">) {
-        return true;
-    }
-    if constexpr(comptime::starts_with<sig, "void __fastcall ">) {
-        return true;
-    }
-    return false;
+template <class V, class NV>
+auto msft_bail(V v, NV nv) -> decltype(nv()) {
+    return nv();
 }
 
-template <comptime::String func>
-constexpr auto bail_is_void_function() -> bool {
-    return msft_sig_has_void_return<msft_func_sig<func>()>();
-}
-
-#define bail(...)                                                                                         \
-    CUTIL_MACROS_PRINT_FUNC(__VA_ARGS__);                                                                  \
-    if constexpr(bail_is_void_function<CUTIL_COMPSTR(std::source_location::current().function_name())>()) { \
-        return;                                                                                            \
-    } else {                                                                                               \
-        return {};                                                                                         \
-    }
+#define bail(...)                                                      \
+    CUTIL_MACROS_PRINT_FUNC(__VA_ARGS__);                                \
+    return msft_bail([]() {}, []() { return msft_bail_empty{}; })
 
 #define ensure(cond, ...)                                      \
     if(!(cond)) {                                              \
