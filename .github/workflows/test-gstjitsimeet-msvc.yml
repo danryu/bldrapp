@@ -193,20 +193,6 @@ jobs:
           text = text.replace('#include <unistd.h>\n\n', '')
           open(path, 'w', encoding='utf-8').write(text)
           print('patched coop thread-event-windows.hpp')
-          
-          path = 'include/coop/promise.hpp'
-          text = open(path, encoding='utf-8').read()
-          text = text.replace(
-              'namespace coop {',
-              'namespace coop {\nstruct MSVCDummyVoid {};'
-          )
-          text = text.replace(
-              '    auto return_void() -> void {\n    }',
-              '    auto return_void() -> void {\n    }\n'
-              '    auto return_value(MSVCDummyVoid) -> void {\n    }'
-          )
-          open(path, 'w', encoding='utf-8').write(text)
-          print('patched coop promise.hpp for MSVC dummy void')
           PY
           echo "--- coop meson.build (top) ---"; head -15 meson.build
 
@@ -280,33 +266,13 @@ jobs:
       - name: Patch cutil-macros for MSVC (probe-time)
         shell: bash
         run: |
-          cd gstjitsimeet/submodules/cutil-macros
-          python - <<'PY'
-          path = 'src/assert.hpp'
-          text = open(path, encoding='utf-8').read()
-          text = text.replace(
-              "constexpr auto str040 = comptime::remove_region<str030, '<', '>'>;",
-              "constexpr auto str031 = comptime::remove_prefix<str030, \"class \">;\n"
-              "    constexpr auto str032 = comptime::remove_prefix<str031, \"struct \">;\n"
-              "    constexpr auto str033 = comptime::remove_prefix<str032, \"enum \">;\n"
-              "    constexpr auto str040 = comptime::remove_region<str033, '<', '>'>;"
-          )
-          open(path, 'w', encoding='utf-8').write(text)
-          print('patched assert.hpp for MSVC type prefixes')
-          
-          path = 'src/coop-assert.hpp'
-          text = open(path, encoding='utf-8').read()
-          text = text.replace(
-              '                return type_string_to_type<str010>();',
-              '                if constexpr(str010.str() == "void") {\n'
-              '                    return coop::MSVCDummyVoid{};\n'
-              '                } else {\n'
-              '                    return type_string_to_type<str010>();\n'
-              '                }'
-          )
-          open(path, 'w', encoding='utf-8').write(text)
-          print('patched coop-assert.hpp for MSVC dummy void return')
-          PY
+          set -e
+          # Materialize copies macros before submodule patches; install into the tree
+          # that Meson actually compiles against.
+          cp patches/msvc/cutil-macros-assert.hpp gstjitsimeet/src/jitsi/macros/assert.hpp
+          cp patches/msvc/cutil-macros-coop-assert.hpp gstjitsimeet/src/jitsi/macros/coop-assert.hpp
+          echo "installed MSVC cutil-macros patches into src/jitsi/macros/"
+          grep -n "extract_return_type_raw\|coop_is_void_async" gstjitsimeet/src/jitsi/macros/assert.hpp gstjitsimeet/src/jitsi/macros/coop-assert.hpp
 
       - name: Configure + build gstjitsimeet (MSVC)
         shell: pwsh
