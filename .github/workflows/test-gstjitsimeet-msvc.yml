@@ -48,11 +48,14 @@ jobs:
       - name: Install pkgconf + GStreamer (official MSVC build)
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           choco install -y pkgconfiglite
           # Official GStreamer Windows packages are MSVC x86_64; devel ships headers
-          # + lib/pkgconfig. Installs to C:\gstreamer\1.0\msvc_x86_64.
+          # + lib/pkgconfig. Chocolatey installs to Program Files, not C:\gstreamer.
           choco install -y gstreamer gstreamer-devel
-          Get-ChildItem 'C:\gstreamer\1.0\msvc_x86_64\lib\pkgconfig' -Filter 'gstreamer-1.0.pc' -ErrorAction SilentlyContinue
+          $gstPc = 'C:\Program Files\gstreamer\1.0\msvc_x86_64\lib\pkgconfig\gstreamer-1.0.pc'
+          if (-not (Test-Path $gstPc)) { throw "Missing $gstPc after choco install" }
+          Write-Host "Found $gstPc"
 
       - name: Install openssl + libwebsockets via vcpkg (MSVC)
         shell: pwsh
@@ -155,12 +158,17 @@ jobs:
       - name: Configure + build gstjitsimeet (MSVC)
         shell: pwsh
         run: |
-          $gst   = 'C:\gstreamer\1.0\msvc_x86_64\lib\pkgconfig'
+          $ErrorActionPreference = 'Stop'
+          $gst   = 'C:\Program Files\gstreamer\1.0\msvc_x86_64\lib\pkgconfig'
           $vcpkg = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\lib\pkgconfig"
           $coop  = "$env:GITHUB_WORKSPACE\gstjitsimeet\deps\coop-install\lib\pkgconfig"
           $env:PKG_CONFIG_PATH = "$gst;$vcpkg;$coop"
           Write-Host "PKG_CONFIG_PATH = $env:PKG_CONFIG_PATH"
-          pkg-config --modversion gstreamer-1.0 gstreamer-rtp-1.0 openssl libwebsockets coop
+          foreach ($pkg in @('gstreamer-1.0','gstreamer-rtp-1.0','openssl','libwebsockets','coop')) {
+            $ver = pkg-config --modversion $pkg
+            if ($LASTEXITCODE -ne 0) { throw "pkg-config failed for $pkg" }
+            Write-Host "$pkg = $ver"
+          }
           cd gstjitsimeet
           meson setup builddir --buildtype=release -Dcpp_std=c++latest
           meson compile -C builddir
