@@ -21,62 +21,8 @@
 //
 // returns automatically detected error value
 //
-// Non-void error paths use msft_bail_empty (converts to nullopt/nullptr/false/0).
-
-template <class T>
-struct msft_is_optional : std::false_type {};
-template <class U>
-struct msft_is_optional<std::optional<U>> : std::true_type {};
-template <class T>
-inline constexpr bool msft_is_optional_v = msft_is_optional<std::remove_cvref_t<T>>::value;
-
-template <comptime::String sig>
-constexpr auto msft_sig_returns_optional() -> bool {
-    if constexpr(msft_sig_is_void_fn<sig>()) {
-        return false;
-    }
-    if constexpr(comptime::starts_with<sig, "class std::optional">) {
-        return true;
-    }
-    if constexpr(comptime::starts_with<sig, "struct std::optional">) {
-        return true;
-    }
-    if constexpr(comptime::find<sig, "-> class std::optional"> != std::string_view::npos) {
-        return true;
-    }
-    if constexpr(comptime::find<sig, "-> struct std::optional"> != std::string_view::npos) {
-        return true;
-    }
-    if constexpr(comptime::find<sig, "-> std::optional"> != std::string_view::npos) {
-        return true;
-    }
-    if constexpr(comptime::find<sig, "std::optional<"> != std::string_view::npos) {
-        return true;
-    }
-    return false;
-}
-
-struct msft_bail_empty {
-    template <class T>
-    operator T() const {
-        if constexpr(msft_is_optional_v<T>) {
-            return std::nullopt;
-        } else if constexpr(std::is_default_constructible_v<T>) {
-            return T{};
-        } else {
-            static_assert(sizeof(T) == 0, "msft_bail_empty: unsupported return type");
-        }
-    }
-};
-
-template <comptime::String sig>
-constexpr auto msft_bail_result() {
-    if constexpr(msft_sig_returns_optional<sig>()) {
-        return std::nullopt;
-    } else {
-        return msft_bail_empty{};
-    }
-}
+// MSVC accepts `return {}` as the correct "empty" value for optional, pointers,
+// bool, and numeric return types. Void functions must use bail_v/ensure_v instead.
 
 template <comptime::String sig>
 constexpr auto msft_sig_is_void_fn() -> bool {
@@ -95,7 +41,7 @@ constexpr auto msft_sig_is_void_fn() -> bool {
 #define bail(...)                                                                                \
     do {                                                                                           \
         CUTIL_MACROS_PRINT_FUNC(__VA_ARGS__);                                                      \
-        return msft_bail_result<CUTIL_COMPSTR(__FUNCSIG__)>();                                     \
+        return {};                                                                                   \
     } while(0)
 
 #define ensure(cond, ...)                                      \
