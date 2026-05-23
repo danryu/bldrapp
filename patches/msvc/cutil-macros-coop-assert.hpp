@@ -3,6 +3,11 @@
 
 #include "assert.hpp"
 
+template <comptime::String str>
+struct msft_find_angle_region {
+    static constexpr auto value = comptime::find_region<str, 60, 62>;
+};
+
 // MSVC expands coop::Async<T> to coop::CoGenerator<T> in __FUNCSIG__.
 template <comptime::String func>
 constexpr auto coop_async_inner_type() -> auto {
@@ -12,7 +17,7 @@ constexpr auto coop_async_inner_type() -> auto {
     if constexpr(async == std::string_view::npos && gen == std::string_view::npos) {
         return comptime::String("");
     } else {
-        constexpr auto region = comptime::find_region<ret_raw, 60, 62>;
+        constexpr auto region = msft_find_angle_region<ret_raw>::value;
         if constexpr(region.first == std::string_view::npos) {
             return comptime::String("");
         } else {
@@ -38,6 +43,11 @@ constexpr auto coop_is_ptr_async() -> bool {
     return !inner.empty() && inner[-1] == '*';
 }
 
+template <comptime::String func>
+constexpr auto coop_is_optional_async() -> bool {
+    return coop_async_inner_type<func>().str() == "std::optional";
+}
+
 #define coop_bail(...)                                                                                \
     CUTIL_MACROS_PRINT_FUNC(__VA_ARGS__);                                                             \
     if constexpr(coop_is_void_async<CUTIL_COMPSTR(std::source_location::current().function_name())>()) { \
@@ -46,8 +56,10 @@ constexpr auto coop_is_ptr_async() -> bool {
         co_return false;                                                                              \
     } else if constexpr(coop_is_ptr_async<CUTIL_COMPSTR(std::source_location::current().function_name())>()) { \
         co_return nullptr;                                                                            \
-    } else {                                                                                          \
+    } else if constexpr(coop_is_optional_async<CUTIL_COMPSTR(std::source_location::current().function_name())>()) { \
         co_return std::nullopt;                                                                       \
+    } else {                                                                                          \
+        co_return -1;                                                                                 \
     }
 
 #define coop_ensure(cond, ...)                                      \

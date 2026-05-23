@@ -39,8 +39,28 @@ constexpr auto type_string_to_type() -> auto {
     }
 }
 
-// GCC/clang put the return type before the function name; MSVC __FUNCSIG__ uses
-// trailing-return syntax ("auto __cdecl foo(...) -> ReturnType").
+// MSVC parses dependent remove_region<...> as operator< unless wrapped.
+template <comptime::String str>
+struct msft_remove_angle_regions {
+    static constexpr auto value = comptime::remove_region<str, 60, 62>;
+};
+
+template <comptime::String ret>
+constexpr auto msft_strip_templates_fn() -> auto {
+    constexpr auto open = comptime::find<ret, "<">;
+    if constexpr(open == std::string_view::npos) {
+        return ret;
+    } else {
+        return comptime::substr<ret, 0, open>;
+    }
+}
+
+template <comptime::String ret>
+struct msft_strip_templates {
+    static constexpr auto value = msft_strip_templates_fn<ret>();
+};
+
+// MSVC __FUNCSIG__ uses trailing-return syntax ("auto __cdecl foo(...) -> ReturnType").
 template <comptime::String func>
 constexpr auto extract_return_type_raw() -> auto {
     constexpr auto str010 = comptime::remove_prefix<func, "static ">;
@@ -50,8 +70,7 @@ constexpr auto extract_return_type_raw() -> auto {
     if constexpr(arrow != std::string_view::npos) {
         return comptime::substr<str030, arrow + 4>;
     } else {
-        // MSVC misparses '>' as closing the template argument list; use ASCII codes.
-        constexpr auto str040 = comptime::remove_region<str030, 60, 62>;
+        constexpr auto str040 = msft_remove_angle_regions<str030>::value;
         constexpr auto space  = comptime::find<str040, " ">;
         if constexpr(space == std::string_view::npos) {
             return comptime::String("");
@@ -66,7 +85,7 @@ constexpr auto normalize_return_type() -> auto {
     constexpr auto s1 = comptime::remove_prefix<ret, "class ">;
     constexpr auto s2 = comptime::remove_prefix<s1, "struct ">;
     constexpr auto s3 = comptime::remove_prefix<s2, "enum ">;
-    constexpr auto s4 = comptime::remove_region<s3, 60, 62>;
+    constexpr auto s4 = msft_strip_templates<s3>::value;
     return comptime::remove_suffix<s4, " ">;
 }
 
@@ -102,8 +121,6 @@ constexpr auto bail_is_smart_ptr_return() -> bool {
     return ret == "std::unique_ptr" || ret == "std::shared_ptr";
 }
 
-// MSVC rejects mixed void/nullptr/optional deduction inside one helper with -> auto.
-// Expand the return at the call site instead.
 #define bail(...)                                                                                              \
     CUTIL_MACROS_PRINT_FUNC(__VA_ARGS__);                                                                       \
     if constexpr(bail_is_ptr_return<CUTIL_COMPSTR(std::source_location::current().function_name())>()) {       \
@@ -152,15 +169,11 @@ constexpr auto error_value = VoidErrorType{};
         bail("assertion failed" __VA_OPT__(": ") __VA_ARGS__); \
     }
 
-// returns explicitly specified variable on error
-// constexpr auto error_value = (-1, std::nullopt, nullptr, ...)
 #define bail_v(...)         generic_bail(return return_error_v(error_value), __VA_ARGS__)
 #define ensure_v(cond, ...) generic_ensure(bail_v, cond, __VA_ARGS__)
 
-// coroutine version
 #define co_bail_v(...)         generic_bail(co_return return_error_v(error_value), __VA_ARGS__)
 #define co_ensure_v(cond, ...) generic_ensure(co_bail_v, cond, __VA_ARGS__)
 
-// executes action on error
 #define bail_a(...)         generic_bail(error_act, __VA_ARGS__)
 #define ensure_a(cond, ...) generic_ensure(bail_a, cond, __VA_ARGS__)
