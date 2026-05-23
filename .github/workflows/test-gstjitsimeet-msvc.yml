@@ -193,6 +193,20 @@ jobs:
           text = text.replace('#include <unistd.h>\n\n', '')
           open(path, 'w', encoding='utf-8').write(text)
           print('patched coop thread-event-windows.hpp')
+          
+          path = 'include/coop/promise.hpp'
+          text = open(path, encoding='utf-8').read()
+          text = text.replace(
+              'namespace coop {',
+              'namespace coop {\nstruct MSVCDummyVoid {};'
+          )
+          text = text.replace(
+              '    auto return_void() -> void {\n    }',
+              '    auto return_void() -> void {\n    }\n'
+              '    auto return_value(MSVCDummyVoid) -> void {\n    }'
+          )
+          open(path, 'w', encoding='utf-8').write(text)
+          print('patched coop promise.hpp for MSVC dummy void')
           PY
           echo "--- coop meson.build (top) ---"; head -15 meson.build
 
@@ -262,6 +276,37 @@ jobs:
           print('patched meson.build: +src/jitsi include, -examples')
           PY
           echo "--- meson.build (top) ---"; head -35 meson.build
+
+      - name: Patch cutil-macros for MSVC (probe-time)
+        shell: bash
+        run: |
+          cd gstjitsimeet/submodules/cutil-macros
+          python - <<'PY'
+          path = 'src/assert.hpp'
+          text = open(path, encoding='utf-8').read()
+          text = text.replace(
+              "constexpr auto str040 = comptime::remove_region<str030, '<', '>'>;",
+              "constexpr auto str031 = comptime::remove_prefix<str030, \"class \">;\n"
+              "    constexpr auto str032 = comptime::remove_prefix<str031, \"struct \">;\n"
+              "    constexpr auto str033 = comptime::remove_prefix<str032, \"enum \">;\n"
+              "    constexpr auto str040 = comptime::remove_region<str033, '<', '>'>;"
+          )
+          open(path, 'w', encoding='utf-8').write(text)
+          print('patched assert.hpp for MSVC type prefixes')
+          
+          path = 'src/coop-assert.hpp'
+          text = open(path, encoding='utf-8').read()
+          text = text.replace(
+              '                return type_string_to_type<str010>();',
+              '                if constexpr(str010.str() == "void") {\n'
+              '                    return coop::MSVCDummyVoid{};\n'
+              '                } else {\n'
+              '                    return type_string_to_type<str010>();\n'
+              '                }'
+          )
+          open(path, 'w', encoding='utf-8').write(text)
+          print('patched coop-assert.hpp for MSVC dummy void return')
+          PY
 
       - name: Configure + build gstjitsimeet (MSVC)
         shell: pwsh
