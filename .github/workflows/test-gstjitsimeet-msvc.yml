@@ -282,7 +282,9 @@ jobs:
                       out += [
                           "cpp_compiler = meson.get_compiler('cpp')",
                           "if cpp_compiler.get_id() == 'msvc'",
-                          "  add_project_arguments(['/std:c++latest', '/permissive-', '/Zc:preprocessor', '/EHsc', '/bigobj', '/DNOMINMAX', '/D_ITERATOR_DEBUG_LEVEL=0'], language : 'cpp')",
+                          "  add_project_arguments(['/std:c++latest', '/permissive-', '/Zc:preprocessor', '/EHsc', '/bigobj', '/DNOMINMAX', '/D_ITERATOR_DEBUG_LEVEL=0', '/MD'], language : 'cpp')",
+                          "  add_project_link_arguments('/NODEFAULTLIB:LIBCMTD', language: 'cpp')",
+                          "  add_project_link_arguments('/NODEFAULTLIB:MSVCRTD', language: 'cpp')",
                           "else",
                           "  add_project_arguments(['-Wfatal-errors', '-fpermissive', '-Wno-narrowing', '-Wno-missing-field-initializers', '-std=c++23'], language : 'cpp')",
                           "endif",
@@ -500,6 +502,23 @@ jobs:
           )
           for opt_cpp in ('xml/parser.cpp', 'json/lexer.cpp', 'json/parser.cpp'):
               inject_msvc_optional_macros(opt_cpp)
+
+          WS_NDEBUG_GUARD = '#ifndef NDEBUG\n#define NDEBUG\n#endif\n#undef _DEBUG\n'
+          for ws_cpp in ('ws/impl.cpp', 'ws/client.cpp'):
+              path = ws_cpp
+              text = open(path, encoding='utf-8').read()
+              if 'WS_NDEBUG_GUARD' in text:
+                  print(f'skip {path}: NDEBUG guard already present')
+                  continue
+              if '#include <libwebsockets.h>' not in text:
+                  raise SystemExit(f'missing libwebsockets include in {path}')
+              text = text.replace(
+                  '#include <libwebsockets.h>',
+                  WS_NDEBUG_GUARD + '#include <libwebsockets.h>',
+                  1,
+              )
+              open(path, 'w', encoding='utf-8').write(text)
+              print(f'patched {path}: NDEBUG guard before libwebsockets.h')
 
           import re
           from pathlib import Path
