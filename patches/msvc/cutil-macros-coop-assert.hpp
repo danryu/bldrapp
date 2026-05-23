@@ -3,71 +3,9 @@
 
 #include "assert.hpp"
 
-template <comptime::String ret_raw>
-constexpr auto coop_marker_offset() -> std::size_t {
-    constexpr auto gen   = comptime::find<ret_raw, "coop::CoGenerator<">;
-    constexpr auto async = comptime::find<ret_raw, "coop::Async<">;
-    if constexpr(gen != std::string_view::npos) {
-        return gen + comptime::String("coop::CoGenerator<").size();
-    } else if constexpr(async != std::string_view::npos) {
-        return async + comptime::String("coop::Async<").size();
-    } else {
-        return std::string_view::npos;
-    }
-}
-
-// MSVC expands coop::Async<T> to coop::CoGenerator<T> in __FUNCSIG__.
-template <comptime::String func>
-constexpr auto coop_async_inner_type() -> auto {
-    constexpr auto ret_raw = extract_return_type_raw<func>();
-    constexpr auto start   = coop_marker_offset<ret_raw>();
-    if constexpr(start == std::string_view::npos) {
-        return comptime::String("");
-    } else {
-        constexpr auto close = comptime::rfind<ret_raw, ">">;
-        if constexpr(close == std::string_view::npos || close <= start) {
-            return comptime::String("");
-        } else {
-            constexpr auto inner = comptime::substr<ret_raw, start, close - start>;
-            return normalize_return_type<inner>();
-        }
-    }
-}
-
-template <comptime::String func>
-constexpr auto coop_is_void_async() -> bool {
-    return coop_async_inner_type<func>().str() == "void";
-}
-
-template <comptime::String func>
-constexpr auto coop_is_bool_async() -> bool {
-    return coop_async_inner_type<func>().str() == "bool";
-}
-
-template <comptime::String func>
-constexpr auto coop_is_ptr_async() -> bool {
-    constexpr auto inner = coop_async_inner_type<func>();
-    return !inner.empty() && inner[-1] == '*';
-}
-
-template <comptime::String func>
-constexpr auto coop_is_optional_async() -> bool {
-    return coop_async_inner_type<func>().str() == "std::optional";
-}
-
-#define coop_bail(...)                                                                                \
-    CUTIL_MACROS_PRINT_FUNC(__VA_ARGS__);                                                             \
-    if constexpr(coop_is_void_async<CUTIL_COMPSTR(std::source_location::current().function_name())>()) { \
-        co_return;                                                                                    \
-    } else if constexpr(coop_is_bool_async<CUTIL_COMPSTR(std::source_location::current().function_name())>()) { \
-        co_return false;                                                                              \
-    } else if constexpr(coop_is_ptr_async<CUTIL_COMPSTR(std::source_location::current().function_name())>()) { \
-        co_return nullptr;                                                                            \
-    } else if constexpr(coop_is_optional_async<CUTIL_COMPSTR(std::source_location::current().function_name())>()) { \
-        co_return std::nullopt;                                                                       \
-    } else {                                                                                          \
-        co_return -1;                                                                                 \
-    }
+#define coop_bail(...)                    \
+    CUTIL_MACROS_PRINT_FUNC(__VA_ARGS__); \
+    co_return {}
 
 #define coop_ensure(cond, ...)                                      \
     if(!(cond)) {                                                   \
