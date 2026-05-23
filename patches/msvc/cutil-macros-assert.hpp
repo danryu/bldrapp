@@ -21,8 +21,8 @@
 //
 // returns automatically detected error value
 //
-// Non-void error paths use return {} (nullopt/nullptr/false/0). Overload
-// resolution picks void vs value return without parsing __FUNCSIG__.
+// Non-void error paths use msft_bail_empty (converts to nullopt/nullptr/false/0).
+// Void functions are detected via __FUNCSIG__ prefix/trailing markers only.
 
 struct msft_bail_empty {
     template <class T>
@@ -31,19 +31,33 @@ struct msft_bail_empty {
     }
 };
 
-template <class V, class NV>
-auto msft_bail(V v, NV nv) -> decltype(v(), void()) {
-    v();
+template <comptime::String sig>
+constexpr auto msft_sig_is_void_fn() -> bool {
+    if constexpr(comptime::starts_with<sig, "void __cdecl ">) {
+        return true;
+    }
+    if constexpr(comptime::starts_with<sig, "void __stdcall ">) {
+        return true;
+    }
+    if constexpr(comptime::starts_with<sig, "void __fastcall ">) {
+        return true;
+    }
+    if constexpr(comptime::find<sig, "-> void"> != std::string_view::npos) {
+        return true;
+    }
+    if constexpr(comptime::find<sig, "->void"> != std::string_view::npos) {
+        return true;
+    }
+    return false;
 }
 
-template <class V, class NV>
-auto msft_bail(V v, NV nv) -> decltype(nv()) {
-    return nv();
-}
-
-#define bail(...)                                                      \
-    CUTIL_MACROS_PRINT_FUNC(__VA_ARGS__);                                \
-    return msft_bail([]() {}, []() { return msft_bail_empty{}; })
+#define bail(...)                                                                                \
+    CUTIL_MACROS_PRINT_FUNC(__VA_ARGS__);                                                          \
+    if constexpr(msft_sig_is_void_fn<CUTIL_COMPSTR(__FUNCSIG__)>()) {                              \
+        return;                                                                                    \
+    } else {                                                                                       \
+        return msft_bail_empty{};                                                                    \
+    }
 
 #define ensure(cond, ...)                                      \
     if(!(cond)) {                                              \
