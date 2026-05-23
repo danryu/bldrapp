@@ -36,11 +36,11 @@ jobs:
 
           - name: Windows
             os: windows-2022
-            qt_platform: win32-g++
+            qt_platform: win32-msvc
             qt_configure_args: ""
             cmake_generator: "Ninja"
             qt_version: "v6.5.8-lts-lgpl"
-            packages: "" # Installed via MSYS2 pacman
+            packages: ""
 
     name: Qt6 static (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
@@ -69,24 +69,26 @@ jobs:
         # If specific packages needed via brew, install here:
         # brew install ninja ccache # Example if needed
 
-    # UCRT64 (not MINGW64) so static Qt matches the UCRT64 GStreamer and app builds.
-    # A minimal package set (no libb2) lets Qt fall back to its bundled blake2; the
-    # configure flag below makes that explicit so no system Libb2 dependency is baked
-    # into Qt6CoreConfig (which broke the downstream app build).
-    - name: Set up MSYS2 UCRT64 (Windows)
+    # MSVC (not MinGW) so static Qt matches the MSVC GStreamer and app builds — the
+    # whole Windows chain is MSVC because JUCE/ASIO is MSVC-only and GStreamer's
+    # official Windows builds are MSVC.
+    - name: Set up MSVC (x64) environment (Windows)
       if: runner.os == 'Windows'
-      uses: msys2/setup-msys2@v2
+      uses: ilammy/msvc-dev-cmd@v1
       with:
-        msystem: UCRT64
-        update: true
-        install: >-
-          mingw-w64-ucrt-x86_64-gcc
-          mingw-w64-ucrt-x86_64-ninja
-          mingw-w64-ucrt-x86_64-cmake
-          mingw-w64-ucrt-x86_64-python
-          mingw-w64-ucrt-x86_64-perl
-          git
-          make
+        arch: x64
+
+    - name: Set up Python (Windows)
+      if: runner.os == 'Windows'
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install Ninja (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: choco install -y ninja
+      # Perl (Strawberry) is preinstalled on windows-2022; Qt configure needs perl+python.
 
 
     # --- Qt Static Build ---
@@ -222,90 +224,65 @@ jobs:
           ccache -s # Show stats
         fi
 
-    - name: Build Qt Statically (Windows/MinGW)
+    - name: Build Qt Statically (Windows/MSVC)
       if: steps.cache-qt.outputs.cache-hit != 'true' && runner.os == 'Windows'
-      shell: msys2 {0}
+      shell: pwsh
       run: |
-        QT_VERSION_BRANCH=${{ matrix.qt_version }}
-        QT_SOURCE_REL=qt-source
-        QT_BUILD_REL=qt-build
-        QT_INSTALL_REL=qt6-static-build
-        QT_INSTALL_ABS=${{ github.workspace }}/kormix-app/$QT_INSTALL_REL
+        $ErrorActionPreference = 'Stop'
+        $QT_VERSION_BRANCH = "${{ matrix.qt_version }}"
+        $QT_SOURCE_REL  = "qt-source"
+        $QT_BUILD_REL   = "qt-build"
+        $QT_INSTALL_REL = "qt6-static-build"
+        $MODULE_SUBSET  = "qtbase,qtdeclarative,qtsvg,qtwebsockets,qtmultimedia,qtwebchannel,qtshadertools"
 
-        MODULE_SUBSET="qtbase,qtdeclarative,qtsvg,qtwebsockets,qtmultimedia,qtwebchannel,qtshadertools"
+        Write-Host "Cloning Qt top-level repository ($QT_VERSION_BRANCH)..."
+        git clone --branch $QT_VERSION_BRANCH --depth 1 --single-branch https://code.qt.io/qt/qt5.git $QT_SOURCE_REL
+        if ($LASTEXITCODE -ne 0) { throw "git clone failed" }
 
-        echo "Cloning Qt top-level repository ($QT_VERSION_BRANCH)..."
-        git clone --branch $QT_VERSION_BRANCH --depth 1 --single-branch https://code.qt.io/qt/qt5.git "$QT_SOURCE_REL" || exit 1
-
-        cd "$QT_SOURCE_REL" || exit 1
-        echo "Initializing submodule configurations ($MODULE_SUBSET)..."
-        ./init-repository --module-subset=$MODULE_SUBSET || exit 1
-        echo "Fetching required submodules (subset only)..."
+        Push-Location $QT_SOURCE_REL
+        Write-Host "Initializing submodule configurations ($MODULE_SUBSET)..."
+        perl init-repository --module-subset=$MODULE_SUBSET
+        if ($LASTEXITCODE -ne 0) { throw "init-repository failed" }
         # Don't use --init (re-inits ALL modules) or --depth 1 (fails on non-tip commits)
-        git submodule update --recursive --recommend-shallow || exit 1
-        cd .. || exit 1
+        git submodule update --recursive --recommend-shallow
+        if ($LASTEXITCODE -ne 0) { throw "submodule update failed" }
+        Pop-Location
 
-        mkdir -p "$QT_BUILD_REL" || exit 1
-        cd "$QT_BUILD_REL" || exit 1
+        New-Item -ItemType Directory -Force -Path $QT_BUILD_REL | Out-Null
+        Push-Location $QT_BUILD_REL
 
-        echo "Configuring Qt with MinGW-w64..."
-        CONFIGURE_CMD=(../"$QT_SOURCE_REL"/configure -prefix "../$QT_INSTALL_REL" \
-          -release \
-          -static \
-          -opensource -confirm-license \
-          -no-pch \
-          -nomake examples -nomake tests \
-          -skip qtwebengine \
-          -skip qtmqtt \
-          -skip qtnetworkauth \
-          -skip qtopcua \
-          -skip qt3d \
-          -skip qt5compat \
-          -skip qtactiveqt \
-          -skip qtdoc \
-          -skip qtcharts \
-          -skip qtcoap \
-          -skip qtconnectivity \
-          -skip qtdatavis3d \
-          -skip qtgraphs \
-          -skip qtgrpc \
-          -skip qthttpserver \
-          -skip qtimageformats \
-          -skip qtlanguageserver \
-          -skip qtlocation \
-          -skip qtlottie \
-          -skip qtpositioning \
-          -skip qtquick3d \
-          -skip qtquick3dphysics \
-          -skip qtquickeffectmaker \
-          -skip qtquicktimeline \
-          -skip qtremoteobjects \
-          -skip qtscxml \
-          -skip qtsensors \
-          -skip qtserialbus \
-          -skip qtserialport \
-          -skip qtspeech \
-          -skip qttranslations \
-          -skip qtvirtualkeyboard \
-          -qt-zlib \
-          -qt-libpng \
-          -qt-libjpeg \
-          -qt-freetype \
-          -qt-harfbuzz \
-          -qt-pcre \
-          -DFEATURE_system_libb2=OFF \
-          ${{ matrix.qt_configure_args }} \
-          -platform ${{ matrix.qt_platform }} \
-          -schannel)
+        # win32-msvc + cl.exe (from msvc-dev-cmd). configure.bat picks the Ninja
+        # generator since ninja is on PATH. Bundled blake2 (no system libb2).
+        $cfg = @(
+          "-prefix", "../$QT_INSTALL_REL",
+          "-release", "-static",
+          "-opensource", "-confirm-license",
+          "-no-pch",
+          "-nomake", "examples", "-nomake", "tests",
+          "-skip","qtwebengine","-skip","qtmqtt","-skip","qtnetworkauth","-skip","qtopcua",
+          "-skip","qt3d","-skip","qt5compat","-skip","qtactiveqt","-skip","qtdoc",
+          "-skip","qtcharts","-skip","qtcoap","-skip","qtconnectivity","-skip","qtdatavis3d",
+          "-skip","qtgraphs","-skip","qtgrpc","-skip","qthttpserver","-skip","qtimageformats",
+          "-skip","qtlanguageserver","-skip","qtlocation","-skip","qtlottie","-skip","qtpositioning",
+          "-skip","qtquick3d","-skip","qtquick3dphysics","-skip","qtquickeffectmaker","-skip","qtquicktimeline",
+          "-skip","qtremoteobjects","-skip","qtscxml","-skip","qtsensors","-skip","qtserialbus",
+          "-skip","qtserialport","-skip","qtspeech","-skip","qttranslations","-skip","qtvirtualkeyboard",
+          "-qt-zlib","-qt-libpng","-qt-libjpeg","-qt-freetype","-qt-harfbuzz","-qt-pcre",
+          "-DFEATURE_system_libb2=OFF",
+          "-platform", "${{ matrix.qt_platform }}",
+          "-schannel"
+        )
+        Write-Host "Running configure.bat $cfg"
+        & "..\$QT_SOURCE_REL\configure.bat" @cfg
+        if ($LASTEXITCODE -ne 0) { if (Test-Path config.log) { Get-Content config.log }; throw "configure failed" }
 
-        echo "Running Configure: ${CONFIGURE_CMD[@]}"
-        "${CONFIGURE_CMD[@]}" || (cat config.log && exit 1)
+        Write-Host "Building Qt modules..."
+        cmake --build . --parallel $env:NUMBER_OF_PROCESSORS
+        if ($LASTEXITCODE -ne 0) { throw "build failed" }
 
-        echo "Building Qt modules..."
-        cmake --build . --parallel ${NUMBER_OF_PROCESSORS:-4} || exit 1
-
-        echo "Installing Qt..."
-        cmake --install . || exit 1
+        Write-Host "Installing Qt..."
+        cmake --install .
+        if ($LASTEXITCODE -ne 0) { throw "install failed" }
 
     # --- Package and Upload Qt Build ---
     - name: Package Qt Build

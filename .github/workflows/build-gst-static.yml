@@ -114,18 +114,28 @@ jobs:
           ./build_gstreamer.sh
 
       # -----------------------------------------------------------------------
-      # Windows: native build using MSYS2 UCRT64 (how GStreamer's own CI does it)
+      # Windows: MSVC build (GStreamer's official Windows toolchain; matches Qt + app).
+      # Cerbero-style: the MSVC compiler (cl/nmake) is driven from an MSYS2 shell that
+      # provides the unix tooling (make, perl, meson, ninja, cmake, nasm). All deps —
+      # openssl, x264, libwebsockets — are source-built with MSVC. `path-type: inherit`
+      # makes cl.exe/nmake (added by msvc-dev-cmd) visible inside the MSYS2 shell, and
+      # CC=cl/CXX=cl (build step) force meson/cmake onto MSVC despite mingw being present.
       # -----------------------------------------------------------------------
 
-      # Register `msys2` shell + toolchain only when building (not needed for verify/zip on cache hit).
+      - name: Setup MSVC (x64) environment (Windows)
+        if: matrix.platform == 'windows' && steps.cache-gst.outputs.cache-hit != 'true'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
       - name: Setup MSYS2 (Windows)
         if: matrix.platform == 'windows' && steps.cache-gst.outputs.cache-hit != 'true'
         uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
           update: true
+          path-type: inherit
           install: >-
-            mingw-w64-ucrt-x86_64-gcc
             mingw-w64-ucrt-x86_64-pkg-config
             mingw-w64-ucrt-x86_64-meson
             mingw-w64-ucrt-x86_64-ninja
@@ -153,20 +163,25 @@ jobs:
 
       - name: Extract Qt6 static (Windows)
         if: matrix.platform == 'windows' && steps.cache-gst.outputs.cache-hit != 'true'
-        shell: msys2 {0}
+        shell: pwsh
         run: |
-          mkdir -p "${{ github.workspace }}/qt6-static-build"
-          unzip "${{ github.workspace }}/qt-download/qtv6"*.zip -d "${{ github.workspace }}/qt6-static-build"
-          ls -la "${{ github.workspace }}/qt6-static-build"
+          New-Item -ItemType Directory -Force -Path "${{ github.workspace }}/qt6-static-build" | Out-Null
+          $zip = Get-ChildItem "${{ github.workspace }}/qt-download/qtv6*.zip" | Select-Object -First 1
+          Expand-Archive -Path $zip.FullName -DestinationPath "${{ github.workspace }}/qt6-static-build" -Force
+          Get-ChildItem "${{ github.workspace }}/qt6-static-build"
 
-      - name: Build GStreamer (Windows MSYS2 UCRT64)
+      - name: Build GStreamer (Windows MSVC)
         if: matrix.platform == 'windows' && steps.cache-gst.outputs.cache-hit != 'true'
         shell: msys2 {0}
         env:
           INSTALL_DEPS: "false"
           MSYS: winsymlinks:nativestrict
+          # Force MSVC for meson/cmake even though mingw gcc is present in UCRT64.
+          CC: cl
+          CXX: cl
         run: |
           export QT_PATH="$(cygpath -u '${{ github.workspace }}/qt6-static-build/qt6-static-build')"
+          git config --global core.symlinks true
           chmod +x build_gstreamer.sh
           ./build_gstreamer.sh
 
@@ -185,8 +200,11 @@ jobs:
         if: matrix.platform == 'windows'
         shell: pwsh
         run: |
-          Get-Item install/lib/libgstreamer-full-1.0.a | Format-List Name, Length
-          Get-ChildItem -Recurse install -Filter 'libgstqml6*'
+          # MSVC: gstreamer-full-1.0.lib / gstqml6.lib (no 'lib' prefix, .lib ext).
+          $full = Get-ChildItem -Recurse install -Include 'gstreamer-full-1.0.lib','libgstreamer-full-1.0.*'
+          if (-not $full) { Write-Error "gstreamer-full static lib not found under install/"; exit 1 }
+          $full | Format-List FullName, Length
+          Get-ChildItem -Recurse install -Include 'gstqml6.*','libgstqml6.*' | Format-List FullName
 
       # Bundle the gstreamer install plus the link-time dependency trees the app
       # build resolves via pkg-config (gstreamer-full-1.0.pc Requires openssl, coop,
@@ -220,8 +238,8 @@ jobs:
           $stage = Join-Path $env:RUNNER_TEMP 'gst-bundle'
           if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
           New-Item -ItemType Directory -Force -Path $stage | Out-Null
-          # No openssl-install on Windows — the build uses the system MSYS2 OpenSSL.
-          foreach ($d in @('install','libwebsockets-install','x264-install')) {
+          # All deps are source-built with MSVC into gst-build/*-install (same as macOS).
+          foreach ($d in @('install','openssl-install','libwebsockets-install','x264-install')) {
             if (-not (Test-Path $d)) { Write-Error "expected gst-build/$d missing"; exit 1 }
             Copy-Item -Recurse -Force $d (Join-Path $stage $d)
           }

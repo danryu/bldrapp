@@ -541,38 +541,31 @@ jobs:
       # build JUCE → install Qt/ASIO/WebView2 → configure → build → sign/package → upload
       #########################################################################################
 
-      # Windows is built with the MSYS2 UCRT64 toolchain to match the static Qt
-      # and static GStreamer (both built on UCRT64). MinGW .a static libs cannot be
-      # linked into an MSVC build, so the whole Windows app build runs under
-      # `shell: msys2 {0}`. openssl is installed here because the GStreamer bundle
-      # excludes openssl-install on Windows (gstreamer-full-1.0.pc Requires openssl).
-      - name: Setup MSYS2 UCRT64 (Windows)
+      # Windows uses MSVC for the whole chain (Qt, GStreamer, app+JUCE): JUCE/ASIO is
+      # MSVC-only and GStreamer's official Windows builds are MSVC. JUCE builds with
+      # the default Visual Studio (multi-config) generator.
+      - name: Setup MSVC (x64) environment (Windows)
         if: matrix.os == 'windows-2022'
-        uses: msys2/setup-msys2@v2
+        uses: ilammy/msvc-dev-cmd@v1
         with:
-          msystem: UCRT64
-          update: true
-          install: >-
-            mingw-w64-ucrt-x86_64-gcc
-            mingw-w64-ucrt-x86_64-cmake
-            mingw-w64-ucrt-x86_64-ninja
-            mingw-w64-ucrt-x86_64-pkg-config
-            mingw-w64-ucrt-x86_64-openssl
-            mingw-w64-ucrt-x86_64-ccache
-            make
-            git
-            zip
-            unzip
+          arch: x64
 
-      # Cache JUCE installation. Key bumped to ucrt64 — a previously cached
-      # MSVC-built JUCE is ABI-incompatible with the MinGW app build.
+      # pkg-config is needed by CMakeLists to resolve gstreamer-full-1.0 (+ the bundled
+      # openssl/x264/libwebsockets/coop deps); not present on windows-2022 by default.
+      - name: Install pkg-config (Windows)
+        if: matrix.os == 'windows-2022'
+        shell: pwsh
+        run: choco install -y pkgconfiglite
+
+      # Cache JUCE installation. Key bumped to msvc — a previously cached MinGW JUCE
+      # is ABI-incompatible with the MSVC app build.
       - name: Cache JUCE (Windows)
         if: matrix.os == 'windows-2022'
         id: cache-juce-windows
         uses: actions/cache@v4
         with:
           path: ${{ matrix.juce_install_dir }}
-          key: juce-8.0.4-windows-ucrt64-v1
+          key: juce-8.0.4-windows-msvc-v1
 
       - name: JUCE Cache Status (Windows)
         if: matrix.os == 'windows-2022'
@@ -584,10 +577,17 @@ jobs:
             Write-Output "🔨 JUCE cache miss - building from source with sccache acceleration"
           }
 
-      # Clone and build JUCE under UCRT64 (only if not cached)
+      - name: Setup sccache (Windows)
+        if: matrix.os == 'windows-2022' && steps.cache-juce-windows.outputs.cache-hit != 'true'
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: juce-windows-msvc
+          max-size: 2G
+          variant: sccache
+
       - name: Clone JUCE (Windows)
         if: matrix.os == 'windows-2022' && steps.cache-juce-windows.outputs.cache-hit != 'true'
-        shell: msys2 {0}
+        shell: pwsh
         run: |
           git clone --depth 1 --branch 8.0.4 https://github.com/juce-framework/JUCE.git
           cd JUCE
@@ -595,19 +595,19 @@ jobs:
 
       - name: Configure and Build JUCE (Windows)
         if: matrix.os == 'windows-2022' && steps.cache-juce-windows.outputs.cache-hit != 'true'
-        shell: msys2 {0}
+        shell: pwsh
         run: |
           cd JUCE
-          cmake -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX="${{ matrix.juce_install_dir }}" \
-            -DJUCE_BUILD_EXAMPLES=OFF \
-            -DJUCE_BUILD_EXTRAS=OFF \
-            -DJUCE_ENABLE_MODULE_SOURCE_GROUPS=ON \
-            -DJUCE_DISPLAY_SPLASH_SCREEN=OFF \
-            -DJUCE_REPORT_APP_USAGE=OFF \
+          cmake -B build `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_INSTALL_PREFIX="${{ matrix.juce_install_dir }}" `
+            -DJUCE_BUILD_EXAMPLES=OFF `
+            -DJUCE_BUILD_EXTRAS=OFF `
+            -DJUCE_ENABLE_MODULE_SOURCE_GROUPS=ON `
+            -DJUCE_DISPLAY_SPLASH_SCREEN=OFF `
+            -DJUCE_REPORT_APP_USAGE=OFF `
             -DJUCE_STRICT_REFCOUNTEDPOINTER=ON
-          cmake --build build --target install -j "$(nproc)"
+          cmake --build build --config Release --target install -j $env:NUMBER_OF_PROCESSORS
 
       - name: Download ASIO SDK (Windows)
         if: matrix.os == 'windows-2022'
@@ -667,65 +667,75 @@ jobs:
 
       - name: Extract GStreamer (Windows)
         if: matrix.os == 'windows-2022'
-        shell: msys2 {0}
+        shell: pwsh
         run: |
-          set -e
-          GST_TMP="gst-extract-tmp"
-          rm -rf "${GST_TMP}"; mkdir -p "${GST_TMP}"
-          unzip -q gst-download/gstreamer-static-*.zip -d "${GST_TMP}"
-          echo "Bundle contents:"; ls -la "${GST_TMP}"
-          # No openssl-install on Windows — openssl comes from the MSYS2 system package.
-          for d in install libwebsockets-install x264-install; do
-            if [ -d "${GST_TMP}/${d}" ]; then
-              rm -rf "gst-build/${d}"
-              mv "${GST_TMP}/${d}" "gst-build/${d}"
-            fi
-          done
+          $tmp = "gst-extract-tmp"
+          if (Test-Path $tmp) { Remove-Item -Recurse -Force $tmp }
+          New-Item -ItemType Directory -Force -Path $tmp | Out-Null
+          $zip = Get-ChildItem gst-download/gstreamer-static-*.zip | Select-Object -First 1
+          Expand-Archive -Path $zip.FullName -DestinationPath $tmp -Force
+          Write-Host "Bundle contents:"; Get-ChildItem $tmp
+          # Restore in-workspace dep trees under gst-build/ (whatever the bundle carries)
+          foreach ($d in @('install','openssl-install','libwebsockets-install','x264-install')) {
+            if (Test-Path "$tmp/$d") {
+              if (Test-Path "gst-build/$d") { Remove-Item -Recurse -Force "gst-build/$d" }
+              Move-Item "$tmp/$d" "gst-build/$d"
+            }
+          }
           # Restore coop-install at the external path CMakeLists expects.
-          mkdir -p ../gstjitsimeet/deps
-          rm -rf ../gstjitsimeet/deps/coop-install
-          mv "${GST_TMP}/coop-install" ../gstjitsimeet/deps/coop-install
-          echo "Verifying restored GStreamer:"
-          ls -la gst-build/install/lib/gstreamer-1.0/libgstqml6.a
-          ls -d gst-build/libwebsockets-install gst-build/x264-install ../gstjitsimeet/deps/coop-install
+          $coopDest = "${{ github.workspace }}/../gstjitsimeet/deps"
+          New-Item -ItemType Directory -Force -Path $coopDest | Out-Null
+          if (Test-Path "$coopDest/coop-install") { Remove-Item -Recurse -Force "$coopDest/coop-install" }
+          Move-Item "$tmp/coop-install" "$coopDest/coop-install"
+          Write-Host "Restored GStreamer dep trees under gst-build/ and coop-install"
 
-      # Native MinGW build: no MSVC Windows-SDK lib/include paths needed (gcc ships
-      # its own win32 headers/import libs). Static-link the gcc/stdc++/winpthread
-      # runtimes so the distributed exe needs no MinGW DLLs.
+      # MSVC build via the default Visual Studio generator. The Windows SDK um/ paths
+      # are passed in case CMake needs them explicitly (harmless if the version dir is
+      # absent). ASIO headers come via the include flag (cl accepts -I).
       - name: Configure CMake (Windows)
         if: matrix.os == 'windows-2022'
-        shell: msys2 {0}
+        shell: bash
         run: |
-          cmake -S . -B build -G Ninja \
+          WINDOWS_SDK_VERSION_GUESS="10.0.22621.0"
+          CMAKE_EXTRA_PREFIX_PATHS="C:/Program Files (x86)/Windows Kits/10/Lib/${WINDOWS_SDK_VERSION_GUESS}/um/x64;C:/Program Files (x86)/Windows Kits/10/Include/${WINDOWS_SDK_VERSION_GUESS}/um"
+          cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/install_dir" \
             -DKORMIX_VERSION=${{ needs.determine_version.outputs.version_for_build }} \
-            -DCMAKE_PREFIX_PATH="${{ github.workspace }}/qt6-static-build;${{ matrix.juce_install_dir }}" \
-            -DCMAKE_CXX_FLAGS="-IC:/asio_sdk/asiosdk_2.3.3_2019-06-14/common" \
-            -DCMAKE_EXE_LINKER_FLAGS="-static -static-libgcc -static-libstdc++" \
-            -DCMAKE_SHARED_LINKER_FLAGS="-static-libgcc -static-libstdc++"
+            -DCMAKE_PREFIX_PATH="${{ github.workspace }}/qt6-static-build;${{ matrix.juce_install_dir }};${CMAKE_EXTRA_PREFIX_PATHS}" \
+            -DCMAKE_CXX_FLAGS="-IC:/asio_sdk/asiosdk_2.3.3_2019-06-14/common"
 
-      # JUCE puts artefacts under Release/ even with single-config Ninja (it uses the
-      # $<CONFIG> generator expression), so the downstream signing/Inno paths are
-      # unchanged. timeout guards the known VST3 moduleinfo-helper hang.
       - name: Build and Install (Windows)
         if: matrix.os == 'windows-2022'
-        shell: msys2 {0}
+        shell: pwsh
         run: |
-          cmake --build build --target kormix_Standalone -j "$(nproc)"
+          cmake --build build --config Release --target kormix_Standalone
 
-          echo "Building VST3 target (timeout guard for moduleinfo helper hang)..."
-          timeout 300 cmake --build build --target kormix_VST3 -j "$(nproc)" \
-            || echo "VST3 build timed out or failed; verifying artefact below"
+          # Build VST3 with timeout to avoid hanging on moduleinfo.json creation
+          echo "Building VST3 target with timeout..."
+          $job = Start-Job -ScriptBlock {
+            cmake --build build --config Release --target kormix_VST3
+          }
+          if (Wait-Job $job -Timeout 300) {
+            Receive-Job $job
+            Remove-Job $job
+            echo "VST3 build completed successfully"
+          } else {
+            echo "VST3 build timed out, stopping job..."
+            Stop-Job $job
+            Remove-Job $job -Force
+          }
 
-          VST3="build/kormix_artefacts/Release/VST3/Kormix.vst3/Contents/x86_64-win/Kormix.vst3"
-          if [ -f "${VST3}" ]; then
-            echo "SUCCESS: VST3 plugin file found at ${VST3}"
-          else
-            echo "ERROR: VST3 plugin file not found at ${VST3}"
-            ls -R build/kormix_artefacts/Release/VST3 2>/dev/null || echo "VST3 build directory does not exist"
+          $vst3File = "build/kormix_artefacts/Release/VST3/Kormix.vst3/Contents/x86_64-win/Kormix.vst3"
+          if (Test-Path $vst3File) {
+            echo "SUCCESS: VST3 plugin file found at $vst3File"
+          } else {
+            echo "ERROR: VST3 plugin file not found at $vst3File"
+            if (Test-Path "build/kormix_artefacts/Release/VST3") {
+              Get-ChildItem -Recurse "build/kormix_artefacts/Release/VST3"
+            }
             exit 1
-          fi
+          }
 
       - name: Sign Raw Windows Executable
         if: matrix.os == 'windows-2022'
