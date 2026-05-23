@@ -50,8 +50,8 @@ constexpr auto extract_return_type_raw() -> auto {
     if constexpr(arrow != std::string_view::npos) {
         return comptime::substr<str030, arrow + 4>;
     } else {
-        // MSVC: '>' in '>'> closes the template unless spaced: '>' >
-        constexpr auto str040 = comptime::remove_region<str030, '<', '>' >;
+        // MSVC misparses '>' as closing the template argument list; use ASCII codes.
+        constexpr auto str040 = comptime::remove_region<str030, 60, 62>;
         constexpr auto space  = comptime::find<str040, " ">;
         if constexpr(space == std::string_view::npos) {
             return comptime::String("");
@@ -66,7 +66,7 @@ constexpr auto normalize_return_type() -> auto {
     constexpr auto s1 = comptime::remove_prefix<ret, "class ">;
     constexpr auto s2 = comptime::remove_prefix<s1, "struct ">;
     constexpr auto s3 = comptime::remove_prefix<s2, "enum ">;
-    constexpr auto s4 = comptime::remove_region<s3, '<', '>' >;
+    constexpr auto s4 = comptime::remove_region<s3, 60, 62>;
     return comptime::remove_suffix<s4, " ">;
 }
 

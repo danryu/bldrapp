@@ -12,7 +12,7 @@ constexpr auto coop_async_inner_type() -> auto {
     if constexpr(async == std::string_view::npos && gen == std::string_view::npos) {
         return comptime::String("");
     } else {
-        constexpr auto region = comptime::find_region<ret_raw, '<', '>' >;
+        constexpr auto region = comptime::find_region<ret_raw, 60, 62>;
         if constexpr(region.first == std::string_view::npos) {
             return comptime::String("");
         } else {
