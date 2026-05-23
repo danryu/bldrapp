@@ -365,8 +365,22 @@ jobs:
               '    unwrap(ret, calc_generic<32>(data, "SHA256"));\n    return ret;',
               '    return calc_generic<32>(data, "SHA256");',
           )
+          text = text.replace('ensure(ctx.get() != NULL);', 'if(ctx.get() == NULL) return std::nullopt;')
+          text = text.replace('ensure(md != NULL);', 'if(md == NULL) return std::nullopt;')
+          text = text.replace(
+              'ensure(EVP_DigestInit_ex(ctx.get(), md, NULL) == 1);',
+              'if(EVP_DigestInit_ex(ctx.get(), md, NULL) != 1) return std::nullopt;',
+          )
+          text = text.replace(
+              'ensure(EVP_DigestUpdate(ctx.get(), data.data(), data.size()) == 1);',
+              'if(EVP_DigestUpdate(ctx.get(), data.data(), data.size()) != 1) return std::nullopt;',
+          )
+          text = text.replace(
+              'ensure(EVP_DigestFinal_ex(ctx.get(), reinterpret_cast<unsigned char*>(buf.data()), NULL) == 1);',
+              'if(EVP_DigestFinal_ex(ctx.get(), reinterpret_cast<unsigned char*>(buf.data()), NULL) != 1) return std::nullopt;',
+          )
           open(path, 'w', encoding='utf-8').write(text)
-          print('patched sha.cpp: drop redundant unwrap')
+          print('patched sha.cpp: drop redundant unwrap + manual nullopt errors')
 
           import re
           from pathlib import Path
