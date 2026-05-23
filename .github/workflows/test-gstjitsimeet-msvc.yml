@@ -355,6 +355,18 @@ jobs:
               print('patched base64.cpp: +#include <array>')
           else:
               print('base64.cpp already includes <array>')
+          path = 'crypto/sha.cpp'
+          text = open(path, encoding='utf-8').read()
+          text = text.replace(
+              '    unwrap(ret, calc_generic<20>(data, "SHA1"));\n    return ret;',
+              '    return calc_generic<20>(data, "SHA1");',
+          )
+          text = text.replace(
+              '    unwrap(ret, calc_generic<32>(data, "SHA256"));\n    return ret;',
+              '    return calc_generic<32>(data, "SHA256");',
+          )
+          open(path, 'w', encoding='utf-8').write(text)
+          print('patched sha.cpp: drop redundant unwrap')
           PY
 
       - name: Configure + build gstjitsimeet (MSVC)
