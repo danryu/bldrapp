@@ -30,17 +30,29 @@ struct msft_is_optional<std::optional<U>> : std::true_type {};
 template <class T>
 inline constexpr bool msft_is_optional_v = msft_is_optional<std::remove_cvref_t<T>>::value;
 
+template <comptime::String sig>
+constexpr auto msft_sig_returns_optional() -> bool {
+    constexpr auto opt = comptime::find<sig, "std::optional">;
+    if constexpr(opt == std::string_view::npos) {
+        return false;
+    }
+    constexpr auto cdecl = comptime::find<sig, " __cdecl ">;
+    if constexpr(cdecl == std::string_view::npos) {
+        return true;
+    }
+    return opt < cdecl;
+}
+
 struct msft_bail_empty {
     template <class T>
-        requires(msft_is_optional_v<T>)
     operator T() const {
-        return std::nullopt;
-    }
-
-    template <class T>
-        requires(!msft_is_optional_v<T> && !std::is_void_v<T> && std::is_default_constructible_v<T>)
-    operator T() const {
-        return T{};
+        if constexpr(msft_is_optional_v<T>) {
+            return std::nullopt;
+        } else if constexpr(std::is_default_constructible_v<T>) {
+            return T{};
+        } else {
+            static_assert(sizeof(T) == 0, "msft_bail_empty: unsupported return type");
+        }
     }
 };
 
@@ -58,9 +70,15 @@ constexpr auto msft_sig_is_void_fn() -> bool {
     return false;
 }
 
-#define bail(...)                                                      \
-    CUTIL_MACROS_PRINT_FUNC(__VA_ARGS__);                                \
-    return msft_bail_empty{}
+#define bail(...)                                                                                \
+    CUTIL_MACROS_PRINT_FUNC(__VA_ARGS__);                                                          \
+    if constexpr(msft_sig_is_void_fn<CUTIL_COMPSTR(__FUNCSIG__)>()) {                              \
+        return;                                                                                      \
+    } else if constexpr(msft_sig_returns_optional<CUTIL_COMPSTR(__FUNCSIG__)>()) {                \
+        return std::nullopt;                                                                         \
+    } else {                                                                                         \
+        return msft_bail_empty{};                                                                    \
+    }
 
 #define ensure(cond, ...)                                      \
     if(!(cond)) {                                              \

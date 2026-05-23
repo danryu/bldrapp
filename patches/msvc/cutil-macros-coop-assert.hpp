@@ -41,6 +41,8 @@ constexpr auto msft_sig_is_void_coop() -> bool {
     CUTIL_MACROS_PRINT_FUNC(__VA_ARGS__);                                                         \
     if constexpr(msft_sig_is_void_coop<CUTIL_COMPSTR(__FUNCSIG__)>()) {                          \
         co_return;                                                                                \
+    } else if constexpr(msft_sig_returns_optional<CUTIL_COMPSTR(__FUNCSIG__)>()) {              \
+        co_return std::nullopt;                                                                     \
     } else {                                                                                      \
         co_return msft_bail_empty{};                                                                \
     }
