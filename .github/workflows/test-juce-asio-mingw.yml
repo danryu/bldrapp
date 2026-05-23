@@ -1,6 +1,6 @@
 # PROBE (manual): can JUCE with Steinberg ASIO enabled compile on Windows with
-# mingw64? JUCE 8 dropped MinGW for juceaide/examples, so this builds a tiny
-# modules-only probe (juce-mingw-probe/) that links juce_audio_devices + ASIO.
+# mingw64? JUCE 8 dropped MinGW; default JUCE 7.0.12 still supports it. Builds
+# a modules-only probe (juce-mingw-probe/) linking juce_audio_devices + ASIO.
 # Read the logs, fix what breaks, repeat.
 name: TEST - JUCE ASIO on MinGW64
 
@@ -8,9 +8,9 @@ on:
   workflow_dispatch:
     inputs:
       juce_ref:
-        description: 'JUCE branch/tag (blank = 8.0.4)'
+        description: 'JUCE branch/tag (blank = 7.0.12; 8.x drops MinGW)'
         required: false
-        default: '8.0.4'
+        default: '7.0.12'
 
 jobs:
   probe:
@@ -41,7 +41,7 @@ jobs:
         run: |
           set -euo pipefail
           ref="${{ github.event.inputs.juce_ref }}"
-          if [ -z "$ref" ]; then ref="8.0.4"; fi
+          if [ -z "$ref" ]; then ref="7.0.12"; fi
           git clone --depth 1 --branch "$ref" https://github.com/juce-framework/JUCE.git
           cd JUCE
           git submodule update --init --recursive
@@ -59,8 +59,10 @@ jobs:
             find asio_sdk
             exit 1
           fi
-          echo "ASIO_SDK_COMMON=$asio_root" >> "$GITHUB_ENV"
-          echo "Found ASIO SDK at $asio_root"
+          asio_abs="$(cd "$(dirname "$asio_root")" && pwd)/$(basename "$asio_root")"
+          echo "ASIO_SDK_COMMON=$asio_abs" >> "$GITHUB_ENV"
+          echo "Found ASIO SDK at $asio_abs"
+          test -f "$asio_abs/iasiodrv.h"
 
       - name: Configure modules-only ASIO probe
         run: |

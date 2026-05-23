@@ -7,6 +7,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 if(NOT DEFINED ASIO_SDK_COMMON)
   message(FATAL_ERROR "ASIO_SDK_COMMON must point at the Steinberg SDK common/ directory")
 endif()
+get_filename_component(ASIO_SDK_COMMON "${ASIO_SDK_COMMON}" ABSOLUTE)
+if(NOT EXISTS "${ASIO_SDK_COMMON}/iasiodrv.h")
+  message(FATAL_ERROR "iasiodrv.h not found under ASIO_SDK_COMMON=${ASIO_SDK_COMMON}")
+endif()
 
 add_subdirectory("${JUCE_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/juce" EXCLUDE_FROM_ALL)
 
@@ -27,3 +31,8 @@ target_link_libraries(asio_probe
     juce::juce_recommended_config_flags
     juce::juce_recommended_warning_flags
 )
+
+# MSVC picks these up via #pragma comment; MinGW needs explicit linkage.
+if(MINGW)
+  target_link_libraries(asio_probe PRIVATE ole32 uuid winmm ws2_32)
+endif()
