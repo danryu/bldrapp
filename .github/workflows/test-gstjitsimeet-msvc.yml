@@ -325,7 +325,8 @@ jobs:
           cp patches/msvc/cutil-macros-assert.hpp gstjitsimeet/src/jitsi/macros/assert.hpp
           cp patches/msvc/cutil-macros-coop-assert.hpp gstjitsimeet/src/jitsi/macros/coop-assert.hpp
           echo "installed MSVC cutil-macros patches into src/jitsi/macros/"
-          grep -n "extract_return_type_raw\|coop_is_void_async\|return {}" gstjitsimeet/src/jitsi/macros/assert.hpp gstjitsimeet/src/jitsi/macros/coop-assert.hpp
+          grep -n "msft_bail_empty\|msft_is_optional" gstjitsimeet/src/jitsi/macros/assert.hpp
+          grep -n "msft_sig_is_void_coop\|coop_bail" gstjitsimeet/src/jitsi/macros/coop-assert.hpp
 
       - name: Patch libjitsimeet sources for MSVC (probe-time)
         shell: bash
