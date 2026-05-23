@@ -205,6 +205,11 @@ jobs:
             test -f "src/jitsi/$f" || { echo "MISSING after deref-copy: src/jitsi/$f"; exit 1; }
           done
           echo "real source tree OK:"; ls -la src/jitsi | head
+          # Nested serde symlinks (xml/xml, json/json, util) duplicate headers after
+          # cp -RL; format.hpp includes already point at the top-level jitsi tree.
+          rm -rf src/jitsi/jingle/serde/xml/xml src/jitsi/jingle/serde/xml/util
+          rm -rf src/jitsi/jingle/serde/json/json
+          echo "removed nested serde symlink copies"
 
       # coop pins cpp_std=c++23 and GCC-only warning flags; MSVC needs c++latest
       # and cl-compatible options (same class of fix as gstjitsimeet below).

@@ -22,13 +22,25 @@
 // returns automatically detected error value
 //
 // Non-void error paths use msft_bail_empty (converts to nullopt/nullptr/false/0).
-// Void functions are detected via __FUNCSIG__ markers (avoid matching "-> void*").
+
+template <class T>
+struct msft_is_optional : std::false_type {};
+template <class U>
+struct msft_is_optional<std::optional<U>> : std::true_type {};
+template <class T>
+inline constexpr bool msft_is_optional_v = msft_is_optional<std::remove_cvref_t<T>>::value;
 
 struct msft_bail_empty {
     template <class T>
-        requires(!std::is_void_v<T> && std::is_default_constructible_v<T>)
+        requires(msft_is_optional_v<T>)
     operator T() const {
-        return {};
+        return std::nullopt;
+    }
+
+    template <class T>
+        requires(!msft_is_optional_v<T> && !std::is_void_v<T> && std::is_default_constructible_v<T>)
+    operator T() const {
+        return T{};
     }
 };
 
