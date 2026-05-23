@@ -30,12 +30,14 @@ jobs:
   probe:
     runs-on: windows-2022
     timeout-minutes: 60
-    # Reuse vcpkg's compiled openssl + libwebsockets across runs instead of rebuilding
-    # them from source every time. First run populates the GitHub Actions cache; later
-    # runs restore the binaries. Cache write failures are non-fatal (vcpkg warns only).
     env:
-      VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+      # windows-2022 ships vcpkg at C:\vcpkg; cache the installed tree below.
+      VCPKG_ROOT: C:\vcpkg
+      VCPKG_BINARY_SOURCES: clear;x-gha,readwrite
     steps:
+      - name: Checkout bldrapp (patches + cache key)
+        uses: actions/checkout@v4
+
       - name: Setup MSVC (x64) environment
         uses: ilammy/msvc-dev-cmd@v1
         with:
@@ -70,14 +72,47 @@ jobs:
           if (-not (Test-Path $gstPc)) { throw "Missing $gstPc after choco install" }
           Write-Host "Found $gstPc"
 
+      # Cache the compiled install tree (~10 min to rebuild openssl + libwebsockets).
+      # x-gha (VCPKG_BINARY_SOURCES) is a second layer; this restore skips vcpkg install
+      # entirely on a hit. downloads/ speeds up cache misses only.
+      - name: Restore vcpkg openssl + libwebsockets cache
+        id: vcpkg-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            C:\vcpkg\installed\x64-windows
+            C:\vcpkg\downloads
+          key: vcpkg-msvc-x64-${{ hashFiles('.github/vcpkg-msvc-deps.txt') }}
+          restore-keys: |
+            vcpkg-msvc-x64-
+
       - name: Install openssl + libwebsockets via vcpkg (MSVC)
+        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $vcpkgRoot = $env:VCPKG_INSTALLATION_ROOT
+          $vcpkgRoot = $env:VCPKG_ROOT
+          Write-Host "Cache miss — building vcpkg ports (expect ~10 min)"
           & "$vcpkgRoot\vcpkg.exe" install openssl:x64-windows libwebsockets:x64-windows
+
+      - name: Ensure vcpkg pkg-config files (MSVC)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vcpkgRoot = $env:VCPKG_ROOT
+          if ("${{ steps.vcpkg-cache.outputs.cache-hit }}" -eq 'true') {
+            Write-Host "vcpkg cache hit — skipped port build"
+          } else {
+            Write-Host "vcpkg cache miss — ports were built this run"
+          }
           $vcpkgPc = "$vcpkgRoot\installed\x64-windows\lib\pkgconfig"
           $lwsPc = "$vcpkgPc\libwebsockets.pc"
+          if (-not (Test-Path "$vcpkgRoot\installed\x64-windows\include\openssl\ssl.h")) {
+            throw "openssl not present under $vcpkgRoot\installed\x64-windows (cache corrupt?)"
+          }
+          if (-not (Test-Path "$vcpkgRoot\installed\x64-windows\include\libwebsockets.h")) {
+            throw "libwebsockets not present under $vcpkgRoot\installed\x64-windows (cache corrupt?)"
+          }
           if (-not (Test-Path $lwsPc)) {
             # Pre-built vcpkg libwebsockets has no .pc on MSVC; point pkg-config at the install tree.
             $prefix = ($vcpkgRoot + '/installed/x64-windows') -replace '\\', '/'
@@ -279,7 +314,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $gst   = 'C:\Program Files\gstreamer\1.0\msvc_x86_64\lib\pkgconfig'
-          $vcpkg = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\lib\pkgconfig"
+          $vcpkg = "$env:VCPKG_ROOT\installed\x64-windows\lib\pkgconfig"
           $coop  = "$env:GITHUB_WORKSPACE\gstjitsimeet\deps\coop-install\lib\pkgconfig"
           $env:PKG_CONFIG_PATH = "$gst;$vcpkg;$coop"
           Write-Host "PKG_CONFIG_PATH = $env:PKG_CONFIG_PATH"
