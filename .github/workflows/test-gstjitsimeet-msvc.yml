@@ -328,14 +328,25 @@ jobs:
           set -e
           cd gstjitsimeet/src/jitsi
           python - <<'PY'
-          path = 'colibri.cpp'
-          text = open(path, encoding='utf-8').read()
-          text = text.replace(
+          def patch(path, old, new, label):
+              text = open(path, encoding='utf-8').read()
+              if old not in text:
+                  raise SystemExit(f'missing {label} in {path}')
+              open(path, 'w', encoding='utf-8').write(text.replace(old, new))
+              print(f'patched {label} in {path}')
+
+          patch(
+              'colibri.cpp',
               '.port      = ws_uri.port,',
               '.port      = static_cast<int>(ws_uri.port),',
+              'colibri port cast',
           )
-          open(path, 'w', encoding='utf-8').write(text)
-          print('patched colibri.cpp port cast')
+          patch(
+              'util/charconv.hpp',
+              'std::from_chars(str.begin(), str.end(), r, base)',
+              'std::from_chars(str.data(), str.data() + str.size(), r, base)',
+              'from_chars string_view iterators',
+          )
           PY
 
       - name: Configure + build gstjitsimeet (MSVC)
