@@ -400,6 +400,105 @@ jobs:
           open(path, 'w', encoding='utf-8').write(text)
           print('patched sha.cpp: drop redundant unwrap + manual nullopt errors')
 
+          MSVC_OPT_MACROS = '''
+          // MSVC: `return {}` in trailing-return optional methods is diagnosed as void.
+          #undef bail
+          #undef ensure
+          #undef unwrap
+          #undef unwrap_mut
+          #define bail(...) do { CUTIL_MACROS_PRINT_FUNC("assertion failed" __VA_OPT__(": ") __VA_ARGS__); return std::nullopt; } while(0)
+          #define ensure(cond, ...) do { if(!(cond)) { CUTIL_MACROS_PRINT_FUNC("assertion failed" __VA_OPT__(": ") __VA_ARGS__); return std::nullopt; } } while(0)
+          #define unwrap(var, opt, ...) const auto var##_o = (opt); if(!(var##_o)) { return std::nullopt; } const auto& var = *var##_o;
+          #define unwrap_mut(var, opt, ...) const auto var##_o = (opt); if(!(var##_o)) { return std::nullopt; } auto& var = *var##_o;
+
+          '''
+
+          def inject_msvc_optional_macros(path: str) -> None:
+              text = open(path, encoding='utf-8').read()
+              needle = '#include "macros/unwrap.hpp"\n'
+              if needle not in text:
+                  raise SystemExit(f'missing unwrap include in {path}')
+              if 'MSVC: `return {}` in trailing-return optional methods' in text:
+                  print(f'skip {path}: MSVC optional macros already injected')
+                  return
+              open(path, 'w', encoding='utf-8').write(text.replace(needle, needle + MSVC_OPT_MACROS))
+              print(f'patched {path}: injected MSVC optional bail macros')
+
+          patch(
+              'json/lexer.cpp',
+              '    auto expect_string(const std::string_view expect) -> bool {\n'
+              '        unwrap(str, reader.read(expect.size()));\n'
+              '        return str == expect;',
+              '    auto expect_string(const std::string_view expect) -> bool {\n'
+              '        const auto str_o = reader.read(expect.size());\n'
+              '        if(!str_o) return false;\n'
+              '        const auto& str = *str_o;\n'
+              '        return str == expect;',
+              'lexer expect_string bool bail',
+          )
+          patch(
+              'json/parser.cpp',
+              '    auto peek() -> const Token* {\n'
+              '        ensure(cursor < tokens.size());\n'
+              '        return &tokens[cursor];\n'
+              '    }',
+              '    auto peek() -> const Token* {\n'
+              '        if(!(cursor < tokens.size())) return nullptr;\n'
+              '        return &tokens[cursor];\n'
+              '    }',
+              'json parser peek nullptr bail',
+          )
+          patch(
+              'json/parser.cpp',
+              '    template <class T>\n'
+              '    auto peek_type() -> const T* {\n'
+              '        unwrap(next, peek());\n'
+              '        return next.get<T>();\n'
+              '    }',
+              '    template <class T>\n'
+              '    auto peek_type() -> const T* {\n'
+              '        const auto next_o = peek();\n'
+              '        if(!next_o) return nullptr;\n'
+              '        const auto& next = *next_o;\n'
+              '        return next.get<T>();\n'
+              '    }',
+              'json parser peek_type nullptr bail',
+          )
+          patch(
+              'json/parser.cpp',
+              '    auto read() -> const Token* {\n'
+              '        unwrap(next, peek());\n'
+              '        cursor += 1;\n'
+              '        return &next;\n'
+              '    }',
+              '    auto read() -> const Token* {\n'
+              '        const auto next_o = peek();\n'
+              '        if(!next_o) return nullptr;\n'
+              '        const auto& next = *next_o;\n'
+              '        cursor += 1;\n'
+              '        return &next;\n'
+              '    }',
+              'json parser read nullptr bail',
+          )
+          patch(
+              'json/parser.cpp',
+              '    template <class T>\n'
+              '    auto read_type() -> const T* {\n'
+              '        unwrap(next, read());\n'
+              '        return next.get<T>();\n'
+              '    }',
+              '    template <class T>\n'
+              '    auto read_type() -> const T* {\n'
+              '        const auto next_o = read();\n'
+              '        if(!next_o) return nullptr;\n'
+              '        const auto& next = *next_o;\n'
+              '        return next.get<T>();\n'
+              '    }',
+              'json parser read_type nullptr bail',
+          )
+          for opt_cpp in ('xml/parser.cpp', 'json/lexer.cpp', 'json/parser.cpp'):
+              inject_msvc_optional_macros(opt_cpp)
+
           import re
           from pathlib import Path
 
