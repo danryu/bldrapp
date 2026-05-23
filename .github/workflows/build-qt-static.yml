@@ -69,18 +69,22 @@ jobs:
         # If specific packages needed via brew, install here:
         # brew install ninja ccache # Example if needed
 
-    - name: Set up MSYS2 MINGW64 (Windows)
+    # UCRT64 (not MINGW64) so static Qt matches the UCRT64 GStreamer and app builds.
+    # A minimal package set (no libb2) lets Qt fall back to its bundled blake2; the
+    # configure flag below makes that explicit so no system Libb2 dependency is baked
+    # into Qt6CoreConfig (which broke the downstream app build).
+    - name: Set up MSYS2 UCRT64 (Windows)
       if: runner.os == 'Windows'
       uses: msys2/setup-msys2@v2
       with:
-        msystem: MINGW64
+        msystem: UCRT64
         update: true
         install: >-
-          mingw-w64-x86_64-gcc
-          mingw-w64-x86_64-ninja
-          mingw-w64-x86_64-cmake
-          mingw-w64-x86_64-python
-          mingw-w64-x86_64-perl
+          mingw-w64-ucrt-x86_64-gcc
+          mingw-w64-ucrt-x86_64-ninja
+          mingw-w64-ucrt-x86_64-cmake
+          mingw-w64-ucrt-x86_64-python
+          mingw-w64-ucrt-x86_64-perl
           git
           make
 
@@ -289,6 +293,7 @@ jobs:
           -qt-freetype \
           -qt-harfbuzz \
           -qt-pcre \
+          -DFEATURE_system_libb2=OFF \
           ${{ matrix.qt_configure_args }} \
           -platform ${{ matrix.qt_platform }} \
           -schannel)

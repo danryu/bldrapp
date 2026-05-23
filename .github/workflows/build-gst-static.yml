@@ -44,12 +44,23 @@ jobs:
           fetch-depth: 1
 
       # Cache gst-build/install — keyed on build_gstreamer.sh.
+      # Cache the gstreamer install AND the link-time dep trees the app build needs.
+      # On a cache hit the build step is skipped, so every path the archive bundles
+      # must be cached too — otherwise the bundle would be incomplete. coop-install
+      # lives outside the workspace (cloned alongside via gstjitsimeet), hence the
+      # absolute path. openssl-install is macOS/Linux-only (Windows uses system
+      # OpenSSL); a non-existent path is simply skipped by actions/cache.
       - name: Restore build cache
         id: cache-gst
         uses: actions/cache@v4
         with:
-          path: gst-build/install
-          key: gstreamer-install-${{ matrix.artifact_suffix }}-${{ hashFiles('gst-build/build_gstreamer.sh') }}
+          path: |
+            gst-build/install
+            gst-build/openssl-install
+            gst-build/libwebsockets-install
+            gst-build/x264-install
+            ${{ github.workspace }}/../gstjitsimeet/deps/coop-install
+          key: gstreamer-bundle-v2-${{ matrix.artifact_suffix }}-${{ hashFiles('gst-build/build_gstreamer.sh') }}
 
       - name: Cache status
         shell: bash
@@ -177,19 +188,49 @@ jobs:
           Get-Item install/lib/libgstreamer-full-1.0.a | Format-List Name, Length
           Get-ChildItem -Recurse install -Filter 'libgstqml6*'
 
+      # Bundle the gstreamer install plus the link-time dependency trees the app
+      # build resolves via pkg-config (gstreamer-full-1.0.pc Requires openssl, coop,
+      # libwebsockets, ...). The zip stores them as sibling top-level dirs; build-app
+      # restores them to the same absolute paths so the .pc prefixes stay valid.
       - name: Archive install directory
         if: matrix.platform != 'windows'
         run: |
-          zip -r gstreamer-static-${{ matrix.artifact_suffix }}.zip install/
+          set -e
+          STAGE="${RUNNER_TEMP}/gst-bundle"
+          rm -rf "${STAGE}"; mkdir -p "${STAGE}"
+          # Required everywhere
+          for d in install libwebsockets-install x264-install; do
+            if [ ! -d "${d}" ]; then echo "ERROR: expected gst-build/${d} missing"; exit 1; fi
+            cp -a "${d}" "${STAGE}/${d}"
+          done
+          # macOS/Linux build OpenSSL from source (Windows uses system OpenSSL)
+          if [ -d openssl-install ]; then cp -a openssl-install "${STAGE}/openssl-install"; fi
+          # coop-install is built under the sibling gstjitsimeet checkout
+          COOP="../../gstjitsimeet/deps/coop-install"
+          if [ ! -d "${COOP}" ]; then echo "ERROR: expected ${COOP} missing"; exit 1; fi
+          cp -a "${COOP}" "${STAGE}/coop-install"
+          ( cd "${STAGE}" && zip -ry "${GITHUB_WORKSPACE}/gst-build/gstreamer-static-${{ matrix.artifact_suffix }}.zip" . )
           ls -lh gstreamer-static-${{ matrix.artifact_suffix }}.zip
+          echo "Bundled dirs:"; ( cd "${STAGE}" && ls -d */ )
 
       - name: Archive install directory (Windows)
         if: matrix.platform == 'windows'
         shell: pwsh
         run: |
+          $stage = Join-Path $env:RUNNER_TEMP 'gst-bundle'
+          if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          # No openssl-install on Windows — the build uses the system MSYS2 OpenSSL.
+          foreach ($d in @('install','libwebsockets-install','x264-install')) {
+            if (-not (Test-Path $d)) { Write-Error "expected gst-build/$d missing"; exit 1 }
+            Copy-Item -Recurse -Force $d (Join-Path $stage $d)
+          }
+          $coop = '../../gstjitsimeet/deps/coop-install'
+          if (-not (Test-Path $coop)) { Write-Error "expected $coop missing"; exit 1 }
+          Copy-Item -Recurse -Force $coop (Join-Path $stage 'coop-install')
           $zip = "gstreamer-static-${{ matrix.artifact_suffix }}.zip"
           if (Test-Path $zip) { Remove-Item $zip }
-          Compress-Archive -Path install -DestinationPath $zip -CompressionLevel Fastest
+          Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -CompressionLevel Fastest
           Get-Item $zip | Format-List Name, Length
 
       - name: Upload artifact
