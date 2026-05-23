@@ -405,6 +405,38 @@ jobs:
           open(path, 'w', encoding='utf-8').write(text)
           print('patched sha.cpp: drop redundant unwrap + manual nullopt errors')
 
+          # MSVC mangles top-level const on pointer params (QEBD vs PEBD); match headers.
+          patch(
+              'jingle-handler/hostaddr.cpp',
+              'auto hostname_to_addr(const char* const hostname) -> std::string {',
+              'auto hostname_to_addr(const char* hostname) -> std::string {',
+              'hostaddr signature match header',
+          )
+          patch(
+              'jingle-handler/cert.cpp',
+              'auto cert_delete(const Cert* const cert) -> void {',
+              'auto cert_delete(const Cert* cert) -> void {',
+              'cert_delete signature match header',
+          )
+          patch(
+              'jingle-handler/cert.cpp',
+              'auto serialize_cert_der(const Cert* const cert) -> std::optional<std::vector<std::byte>> {',
+              'auto serialize_cert_der(const Cert* cert) -> std::optional<std::vector<std::byte>> {',
+              'serialize_cert_der signature match header',
+          )
+          patch(
+              'jingle-handler/cert.cpp',
+              'auto serialize_private_key_der(const Cert* const cert) -> std::optional<std::vector<std::byte>> {',
+              'auto serialize_private_key_der(const Cert* cert) -> std::optional<std::vector<std::byte>> {',
+              'serialize_private_key_der signature match header',
+          )
+          patch(
+              'jingle-handler/cert.cpp',
+              'auto serialize_private_key_pkcs8_der(const Cert* const cert) -> std::optional<std::vector<std::byte>> {',
+              'auto serialize_private_key_pkcs8_der(const Cert* cert) -> std::optional<std::vector<std::byte>> {',
+              'serialize_private_key_pkcs8_der signature match header',
+          )
+
           MSVC_OPT_MACROS = '''
           // MSVC: `return {}` in trailing-return optional methods is diagnosed as void.
           #undef bail
