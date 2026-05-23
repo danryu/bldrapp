@@ -1,0 +1,111 @@
+# PROBE (manual): can JUCE with Steinberg ASIO enabled compile on Windows with
+# mingw64? Minimal scope — configure JUCE with examples and build one audio PIP
+# (AudioSettingsDemo) that pulls in juce_audio_devices + ASIO. Read the logs,
+# fix what breaks, repeat.
+name: TEST - JUCE ASIO on MinGW64
+
+on:
+  workflow_dispatch:
+    inputs:
+      juce_ref:
+        description: 'JUCE branch/tag (blank = 8.0.4)'
+        required: false
+        default: '8.0.4'
+
+jobs:
+  probe:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Checkout bldrapp
+        uses: actions/checkout@v4
+
+      - name: Setup MSYS2 (MinGW64)
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            git
+            unzip
+            curl
+          pacboy: >-
+            toolchain:p
+            cmake:p
+            ninja:p
+
+      - name: Clone JUCE
+        run: |
+          set -euo pipefail
+          ref="${{ github.event.inputs.juce_ref }}"
+          if [ -z "$ref" ]; then ref="8.0.4"; fi
+          git clone --depth 1 --branch "$ref" https://github.com/juce-framework/JUCE.git
+          cd JUCE
+          git submodule update --init --recursive
+
+      - name: Download Steinberg ASIO SDK
+        run: |
+          set -euo pipefail
+          curl -fsSL -o asio.zip \
+            "https://download.steinberg.net/sdk_downloads/asiosdk_2.3.3_2019-06-14.zip"
+          rm -rf asio_sdk
+          unzip -q asio.zip -d asio_sdk
+          asio_root="$(find asio_sdk -type d -name common | head -1)"
+          if [ -z "$asio_root" ]; then
+            echo "Could not locate ASIO SDK common/ directory"
+            find asio_sdk
+            exit 1
+          fi
+          echo "ASIO_SDK_COMMON=$asio_root" >> "$GITHUB_ENV"
+          echo "Found ASIO SDK at $asio_root"
+
+      - name: Configure JUCE (MinGW64 + ASIO + examples)
+        run: |
+          set -euo pipefail
+          cd JUCE
+          # JUCE_ASIO pulls in native/juce_ASIO_windows.cpp; external SDK matches kormix-app.
+          asio_flags="-DJUCE_ASIO=1 -DJUCE_ASIO_USE_EXTERNAL_SDK=1 -I${ASIO_SDK_COMMON}"
+          cmake -G Ninja -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_FLAGS="$asio_flags" \
+            -DJUCE_BUILD_EXAMPLES=ON \
+            -DJUCE_BUILD_EXTRAS=OFF \
+            -DJUCE_ENABLE_MODULE_SOURCE_GROUPS=OFF \
+            -DJUCE_DISPLAY_SPLASH_SCREEN=OFF \
+            -DJUCE_REPORT_APP_USAGE=OFF \
+            -DJUCE_STRICT_REFCOUNTEDPOINTER=ON
+
+      - name: Build juceaide + AudioSettingsDemo
+        run: |
+          set -euo pipefail
+          cd JUCE
+          cmake --build build --target juceaide -j"$(nproc)"
+          # One audio PIP that exercises device enumeration (DirectSound/WASAPI/ASIO).
+          if cmake --build build --target help 2>/dev/null | grep -q 'AudioSettingsDemo'; then
+            demo_target='AudioSettingsDemo'
+          elif cmake --build build --target help 2>/dev/null | grep -q 'AudioSettingsDemo_Standalone'; then
+            demo_target='AudioSettingsDemo_Standalone'
+          else
+            echo "Could not find AudioSettingsDemo target; available targets:"
+            cmake --build build --target help | grep -i audio || true
+            exit 1
+          fi
+          echo "Building demo target: $demo_target"
+          cmake --build build --target "$demo_target" -j"$(nproc)"
+
+      - name: Verify build outputs
+        run: |
+          set -euo pipefail
+          cd JUCE
+          echo "Built artifacts under JUCE/build:"
+          find build -maxdepth 4 \( -name 'AudioSettingsDemo*' -o -name 'juceaide*' \) -type f 2>/dev/null || true
+          exe_count="$(find build -maxdepth 5 -name 'AudioSettingsDemo*.exe' | wc -l | tr -d ' ')"
+          if [ "$exe_count" -eq 0 ]; then
+            echo "No AudioSettingsDemo executable found"
+            find build -maxdepth 5 -name '*.exe' | head -20
+            exit 1
+          fi
+          echo "OK: found $exe_count AudioSettingsDemo executable(s)"
