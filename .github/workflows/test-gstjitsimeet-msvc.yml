@@ -1,0 +1,134 @@
+# PROBE (manual): can UPSTREAM gstjitsimeet + its C++23 submodule tree build with
+# MSVC, against an official (MSVC) GStreamer release? This establishes a baseline —
+# if upstream builds, MSVC support is real and any breakage is fork-specific; if it
+# fails, MSVC support must be added at the source. Throwaway diagnostic, EXPECTED to
+# fail initially — read the logs, port what breaks, repeat. Defaults to upstream
+# (mojyack); flip the inputs to probe the danryu fork once a baseline exists.
+name: TEST - gstjitsimeet on MSVC
+
+on:
+  workflow_dispatch:
+    inputs:
+      gstjitsimeet_repo:
+        description: 'gstjitsimeet repo (owner/name)'
+        required: false
+        default: 'mojyack/gstjitsimeet'
+      gstjitsimeet_ref:
+        description: 'gstjitsimeet branch/ref (blank = repo default)'
+        required: false
+        default: ''
+      submod_repo:
+        description: 'submod repo (owner/name)'
+        required: false
+        default: 'mojyack/submod'
+      coop_repo:
+        description: 'coop repo (owner/name)'
+        required: false
+        default: 'mojyack/coop'
+
+jobs:
+  probe:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - name: Setup MSVC (x64) environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install meson + ninja
+        shell: pwsh
+        run: pip install meson ninja
+
+      - name: Install pkgconf + GStreamer (official MSVC build)
+        shell: pwsh
+        run: |
+          choco install -y pkgconfiglite
+          # Official GStreamer Windows packages are MSVC x86_64; devel ships headers
+          # + lib/pkgconfig. Installs to C:\gstreamer\1.0\msvc_x86_64.
+          choco install -y gstreamer gstreamer-devel
+          Get-ChildItem 'C:\gstreamer\1.0\msvc_x86_64\lib\pkgconfig' -Filter 'gstreamer-1.0.pc' -ErrorAction SilentlyContinue
+
+      - name: Install openssl + libwebsockets via vcpkg (MSVC)
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install openssl:x64-windows libwebsockets:x64-windows
+
+      # submod + git operations need bash; symlinks must be real (the submodule tree
+      # uses git-tracked symlinks). Cloning needs no toolchain.
+      - name: Clone gstjitsimeet + submodule tree
+        shell: bash
+        run: |
+          set -e
+          export MSYS=winsymlinks:nativestrict
+          git config --global core.symlinks true
+          GSTJ_REF='${{ github.event.inputs.gstjitsimeet_ref }}'
+          if [ -n "${GSTJ_REF}" ]; then GSTJ_BRANCH=(-b "${GSTJ_REF}"); else GSTJ_BRANCH=(); fi
+          git clone "${GSTJ_BRANCH[@]}" "https://github.com/${{ github.event.inputs.gstjitsimeet_repo }}.git" gstjitsimeet
+          cd gstjitsimeet
+          # submod populates submodules/ from this repo's own submodules.txt (whatever
+          # deps/revs upstream pins). coop is a separate pkg-config dep built below.
+          mkdir -p deps && cd deps
+          git clone "https://github.com/${{ github.event.inputs.submod_repo }}.git" submod
+          git clone "https://github.com/${{ github.event.inputs.coop_repo }}.git" coop
+          cd ..
+          ./deps/submod/submod clone
+          echo "Submodule tree:"; ls -la submodules/
+
+      - name: Build coop (MSVC)
+        shell: pwsh
+        run: |
+          cd gstjitsimeet/deps/coop
+          $prefix = "$env:GITHUB_WORKSPACE\gstjitsimeet\deps\coop-install"
+          meson setup build --buildtype=release --default-library=static --prefix="$prefix"
+          meson install -C build
+          Get-ChildItem "$prefix\lib\pkgconfig"
+
+      # Make the GCC/Clang-only flags compiler-conditional so the probe reaches actual
+      # source compilation under MSVC. This transform is what we would upstream into
+      # gstjitsimeet/meson.build if the probe succeeds.
+      - name: Patch gstjitsimeet meson.build flags for MSVC (probe-time)
+        shell: bash
+        run: |
+          cd gstjitsimeet
+          python - <<'PY'
+          path = 'meson.build'
+          gcc_flags = ['-Wfatal-errors', '-fpermissive', '-Wno-narrowing',
+                       '-Wno-missing-field-initializers', '-std=c++23']
+          out, inserted = [], False
+          for ln in open(path, encoding='utf-8').read().splitlines():
+              if 'add_project_arguments' in ln and any(f"'{f}'" in ln for f in gcc_flags):
+                  if not inserted:
+                      out += [
+                          "cpp_compiler = meson.get_compiler('cpp')",
+                          "if cpp_compiler.get_id() == 'msvc'",
+                          "  add_project_arguments(['/std:c++latest', '/permissive-', '/Zc:preprocessor', '/EHsc', '/bigobj'], language : 'cpp')",
+                          "else",
+                          "  add_project_arguments(['-Wfatal-errors', '-fpermissive', '-Wno-narrowing', '-Wno-missing-field-initializers', '-std=c++23'], language : 'cpp')",
+                          "endif",
+                      ]
+                      inserted = True
+                  continue
+              out.append(ln)
+          open(path, 'w', encoding='utf-8').write('\n'.join(out) + '\n')
+          print('patched' if inserted else 'NO MATCH — meson.build flags changed')
+          PY
+          echo "--- meson.build (top) ---"; head -25 meson.build
+
+      - name: Configure + build gstjitsimeet (MSVC)
+        shell: pwsh
+        run: |
+          $gst   = 'C:\gstreamer\1.0\msvc_x86_64\lib\pkgconfig'
+          $vcpkg = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\lib\pkgconfig"
+          $coop  = "$env:GITHUB_WORKSPACE\gstjitsimeet\deps\coop-install\lib\pkgconfig"
+          $env:PKG_CONFIG_PATH = "$gst;$vcpkg;$coop"
+          Write-Host "PKG_CONFIG_PATH = $env:PKG_CONFIG_PATH"
+          pkg-config --modversion gstreamer-1.0 gstreamer-rtp-1.0 openssl libwebsockets coop
+          cd gstjitsimeet
+          meson setup builddir --buildtype=release
+          meson compile -C builddir
