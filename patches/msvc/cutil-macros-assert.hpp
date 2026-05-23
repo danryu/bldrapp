@@ -64,6 +64,15 @@ struct msft_bail_empty {
 };
 
 template <comptime::String sig>
+constexpr auto msft_bail_result() {
+    if constexpr(msft_sig_returns_optional<sig>()) {
+        return std::nullopt;
+    } else {
+        return msft_bail_empty{};
+    }
+}
+
+template <comptime::String sig>
 constexpr auto msft_sig_is_void_fn() -> bool {
     if constexpr(comptime::starts_with<sig, "void __cdecl ">) {
         return true;
@@ -78,14 +87,10 @@ constexpr auto msft_sig_is_void_fn() -> bool {
 }
 
 #define bail(...)                                                                                \
-    CUTIL_MACROS_PRINT_FUNC(__VA_ARGS__);                                                          \
-    if constexpr(msft_sig_is_void_fn<CUTIL_COMPSTR(__FUNCSIG__)>()) {                              \
-        return;                                                                                      \
-    } else if constexpr(msft_sig_returns_optional<CUTIL_COMPSTR(__FUNCSIG__)>()) {                \
-        return std::nullopt;                                                                         \
-    } else {                                                                                         \
-        return msft_bail_empty{};                                                                    \
-    }
+    do {                                                                                           \
+        CUTIL_MACROS_PRINT_FUNC(__VA_ARGS__);                                                      \
+        return msft_bail_result<CUTIL_COMPSTR(__FUNCSIG__)>();                                     \
+    } while(0)
 
 #define ensure(cond, ...)                                      \
     if(!(cond)) {                                              \

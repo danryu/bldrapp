@@ -38,14 +38,16 @@ constexpr auto msft_sig_is_void_coop() -> bool {
 }
 
 #define coop_bail(...)                                                                          \
-    CUTIL_MACROS_PRINT_FUNC(__VA_ARGS__);                                                         \
-    if constexpr(msft_sig_is_void_coop<CUTIL_COMPSTR(__FUNCSIG__)>()) {                          \
-        co_return;                                                                                \
-    } else if constexpr(msft_sig_returns_optional<CUTIL_COMPSTR(__FUNCSIG__)>()) {              \
-        co_return std::nullopt;                                                                     \
-    } else {                                                                                      \
-        co_return msft_bail_empty{};                                                                \
-    }
+    do {                                                                                          \
+        CUTIL_MACROS_PRINT_FUNC(__VA_ARGS__);                                                     \
+        if constexpr(msft_sig_is_void_coop<CUTIL_COMPSTR(__FUNCSIG__)>()) {                        \
+            co_return;                                                                            \
+        } else if constexpr(msft_sig_returns_optional<CUTIL_COMPSTR(__FUNCSIG__)>()) {           \
+            co_return std::nullopt;                                                                 \
+        } else {                                                                                  \
+            co_return msft_bail_empty{};                                                            \
+        }                                                                                         \
+    } while(0)
 
 #define coop_ensure(cond, ...)                                      \
     if(!(cond)) {                                                   \
