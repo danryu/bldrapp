@@ -12,7 +12,7 @@ constexpr auto coop_async_inner_type() -> auto {
     if constexpr(async == std::string_view::npos && gen == std::string_view::npos) {
         return comptime::String("");
     } else {
-        constexpr auto region = comptime::find_region<ret_raw, '<', '>'>;
+        constexpr auto region = comptime::find_region<ret_raw, '<', '>' >;
         if constexpr(region.first == std::string_view::npos) {
             return comptime::String("");
         } else {
@@ -28,23 +28,26 @@ constexpr auto coop_is_void_async() -> bool {
 }
 
 template <comptime::String func>
-constexpr auto coop_detect_error_value() -> auto {
+constexpr auto coop_is_bool_async() -> bool {
+    return coop_async_inner_type<func>().str() == "bool";
+}
+
+template <comptime::String func>
+constexpr auto coop_is_ptr_async() -> bool {
     constexpr auto inner = coop_async_inner_type<func>();
-    if constexpr(inner.empty()) {
-        return;
-    } else if constexpr(inner[-1] == '*') {
-        return nullptr;
-    } else {
-        return type_string_to_type<inner>();
-    }
+    return !inner.empty() && inner[-1] == '*';
 }
 
 #define coop_bail(...)                                                                                \
     CUTIL_MACROS_PRINT_FUNC(__VA_ARGS__);                                                             \
     if constexpr(coop_is_void_async<CUTIL_COMPSTR(std::source_location::current().function_name())>()) { \
         co_return;                                                                                    \
+    } else if constexpr(coop_is_bool_async<CUTIL_COMPSTR(std::source_location::current().function_name())>()) { \
+        co_return false;                                                                              \
+    } else if constexpr(coop_is_ptr_async<CUTIL_COMPSTR(std::source_location::current().function_name())>()) { \
+        co_return nullptr;                                                                            \
     } else {                                                                                          \
-        co_return coop_detect_error_value<CUTIL_COMPSTR(std::source_location::current().function_name())>(); \
+        co_return std::nullopt;                                                                       \
     }
 
 #define coop_ensure(cond, ...)                                      \

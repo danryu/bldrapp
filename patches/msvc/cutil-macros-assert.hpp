@@ -50,7 +50,8 @@ constexpr auto extract_return_type_raw() -> auto {
     if constexpr(arrow != std::string_view::npos) {
         return comptime::substr<str030, arrow + 4>;
     } else {
-        constexpr auto str040 = comptime::remove_region<str030, '<', '>'>;
+        // MSVC: '>' in '>'> closes the template unless spaced: '>' >
+        constexpr auto str040 = comptime::remove_region<str030, '<', '>' >;
         constexpr auto space  = comptime::find<str040, " ">;
         if constexpr(space == std::string_view::npos) {
             return comptime::String("");
@@ -65,25 +66,59 @@ constexpr auto normalize_return_type() -> auto {
     constexpr auto s1 = comptime::remove_prefix<ret, "class ">;
     constexpr auto s2 = comptime::remove_prefix<s1, "struct ">;
     constexpr auto s3 = comptime::remove_prefix<s2, "enum ">;
-    constexpr auto s4 = comptime::remove_region<s3, '<', '>'>;
+    constexpr auto s4 = comptime::remove_region<s3, '<', '>' >;
     return comptime::remove_suffix<s4, " ">;
 }
 
 template <comptime::String func>
-constexpr auto detect_error_value() -> auto {
-    constexpr auto ret = normalize_return_type<extract_return_type_raw<func>()>();
-    if constexpr(ret.empty()) {
-        return;
-    } else if constexpr(ret[-1] == '*') {
-        return nullptr;
-    } else {
-        return type_string_to_type<ret>();
-    }
+constexpr auto bail_return_type() -> auto {
+    return normalize_return_type<extract_return_type_raw<func>()>();
 }
 
-#define bail(...)                         \
-    CUTIL_MACROS_PRINT_FUNC(__VA_ARGS__); \
-    return detect_error_value<CUTIL_COMPSTR(std::source_location::current().function_name())>();
+template <comptime::String func>
+constexpr auto bail_is_ptr_return() -> bool {
+    constexpr auto ret = bail_return_type<func>();
+    return !ret.empty() && ret[-1] == '*';
+}
+
+template <comptime::String func>
+constexpr auto bail_is_optional_return() -> bool {
+    return bail_return_type<func>().str() == "std::optional";
+}
+
+template <comptime::String func>
+constexpr auto bail_is_bool_return() -> bool {
+    return bail_return_type<func>().str() == "bool";
+}
+
+template <comptime::String func>
+constexpr auto bail_is_int_return() -> bool {
+    return bail_return_type<func>().str() == "int";
+}
+
+template <comptime::String func>
+constexpr auto bail_is_smart_ptr_return() -> bool {
+    constexpr auto ret = bail_return_type<func>().str();
+    return ret == "std::unique_ptr" || ret == "std::shared_ptr";
+}
+
+// MSVC rejects mixed void/nullptr/optional deduction inside one helper with -> auto.
+// Expand the return at the call site instead.
+#define bail(...)                                                                                              \
+    CUTIL_MACROS_PRINT_FUNC(__VA_ARGS__);                                                                       \
+    if constexpr(bail_is_ptr_return<CUTIL_COMPSTR(std::source_location::current().function_name())>()) {       \
+        return nullptr;                                                                                        \
+    } else if constexpr(bail_is_smart_ptr_return<CUTIL_COMPSTR(std::source_location::current().function_name())>()) { \
+        return nullptr;                                                                                        \
+    } else if constexpr(bail_is_optional_return<CUTIL_COMPSTR(std::source_location::current().function_name())>()) { \
+        return std::nullopt;                                                                                     \
+    } else if constexpr(bail_is_bool_return<CUTIL_COMPSTR(std::source_location::current().function_name())>()) { \
+        return false;                                                                                          \
+    } else if constexpr(bail_is_int_return<CUTIL_COMPSTR(std::source_location::current().function_name())>()) { \
+        return -1;                                                                                               \
+    } else {                                                                                                   \
+        return;                                                                                                \
+    }
 
 #define ensure(cond, ...)                                      \
     if(!(cond)) {                                              \
