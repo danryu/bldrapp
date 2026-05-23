@@ -32,15 +32,22 @@ inline constexpr bool msft_is_optional_v = msft_is_optional<std::remove_cvref_t<
 
 template <comptime::String sig>
 constexpr auto msft_sig_returns_optional() -> bool {
-    constexpr auto opt = comptime::find<sig, "std::optional">;
-    if constexpr(opt == std::string_view::npos) {
-        return false;
-    }
-    constexpr auto cdecl = comptime::find<sig, " __cdecl ">;
-    if constexpr(cdecl == std::string_view::npos) {
+    if constexpr(comptime::starts_with<sig, "class std::optional">) {
         return true;
     }
-    return opt < cdecl;
+    if constexpr(comptime::starts_with<sig, "struct std::optional">) {
+        return true;
+    }
+    if constexpr(comptime::find<sig, "-> class std::optional"> != std::string_view::npos) {
+        return true;
+    }
+    if constexpr(comptime::find<sig, "-> struct std::optional"> != std::string_view::npos) {
+        return true;
+    }
+    if constexpr(comptime::find<sig, "-> std::optional"> != std::string_view::npos) {
+        return true;
+    }
+    return false;
 }
 
 struct msft_bail_empty {
