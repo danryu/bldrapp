@@ -49,15 +49,24 @@ constexpr auto msft_strip_templates_fn() -> auto {
     }
 }
 
+template <comptime::String s>
+constexpr auto msft_ltrim_space() -> auto {
+    if constexpr(comptime::starts_with<s, " ">) {
+        return msft_ltrim_space<comptime::remove_prefix<s, " "> >();
+    } else {
+        return s;
+    }
+}
+
 // MSVC __FUNCSIG__ uses trailing-return syntax ("auto __cdecl foo(...) -> ReturnType").
 template <comptime::String func>
 constexpr auto extract_return_type_raw() -> auto {
     constexpr auto str010 = comptime::remove_prefix<func, "static ">;
     constexpr auto str020 = comptime::remove_prefix<str010, "virtual ">;
     constexpr auto str030 = comptime::remove_prefix<str020, "const ">;
-    constexpr auto arrow  = comptime::find<str030, " -> ">;
+    constexpr auto arrow  = comptime::find<str030, "->">;
     if constexpr(arrow != std::string_view::npos) {
-        return comptime::substr<str030, arrow + 4>;
+        return msft_ltrim_space<comptime::substr<str030, arrow + 2>>();
     } else {
         // Fallback: first token before a space (GCC-style signatures).
         constexpr auto space = comptime::find<str030, " ">;
