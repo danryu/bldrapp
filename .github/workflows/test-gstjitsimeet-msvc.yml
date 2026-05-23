@@ -96,9 +96,24 @@ jobs:
             -DOPENSSL_USE_STATIC_LIBS=TRUE
           cmake --build build --config Release
           cmake --install build
-          $lwsPc = "$prefix\lib\pkgconfig\libwebsockets.pc"
-          if (-not (Test-Path $lwsPc)) { throw "Missing $lwsPc after libwebsockets install" }
-          Write-Host "Found $lwsPc"
+          # libwebsockets only installs .pc files on UNIX/MINGW; write one for MSVC.
+          $pcDir = "$prefix\lib\pkgconfig"
+          New-Item -ItemType Directory -Force -Path $pcDir | Out-Null
+          $prefixPc = ($prefix -replace '\\', '/')
+          @"
+          prefix=$prefixPc
+          exec_prefix=`${prefix}
+          libdir=`${exec_prefix}/lib
+          includedir=`${prefix}/include
+          
+          Name: libwebsockets
+          Description: Websockets server and client library
+          Version: 4.3.6
+          Requires: openssl
+          Libs: -L`${libdir} -lwebsockets_static
+          Cflags: -I`${includedir}
+          "@ | ForEach-Object { $_.TrimStart() } | Set-Content -Path "$pcDir\libwebsockets.pc" -Encoding ascii
+          Write-Host "Wrote $pcDir\libwebsockets.pc"
 
       # submod + git operations need bash; symlinks must be real (the submodule tree
       # uses git-tracked symlinks). Cloning needs no toolchain.
