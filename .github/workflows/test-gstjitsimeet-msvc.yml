@@ -151,6 +151,13 @@ jobs:
             Write-Host "$pkg = $ver"
           }
 
+      - name: Save vcpkg installed tree to cache
+        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: C:\vcpkg\installed\x64-windows
+          key: vcpkg-msvc-x64-${{ hashFiles('.github/vcpkg-msvc-deps.txt') }}
+
       # submod + git operations need bash; symlinks must be real (the submodule tree
       # uses git-tracked symlinks). Cloning needs no toolchain.
       - name: Clone gstjitsimeet + submodule tree

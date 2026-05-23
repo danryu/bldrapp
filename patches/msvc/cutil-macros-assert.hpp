@@ -21,32 +21,68 @@
 //
 // returns automatically detected error value
 //
-// Upstream cutil-macros parses std::source_location::current().function_name() at
-// compile time to synthesize the correct error value (nullopt, nullptr, false, …).
-// That works on GCC/Clang but MSVC __FUNCSIG__ parsing is fragile. For the MSVC probe
-// use return {} / co_return {} which yields the correct error value for every return
-// type used in gstjitsimeet (optional, pointers, bool, int, unique_ptr, void).
+// MSVC __FUNCSIG__ parsing is only used to distinguish void from non-void
+// returns. Non-void error paths use return {} (nullopt/nullptr/false/0).
 
-template <comptime::String str>
-constexpr auto type_string_to_type() -> auto {
-    if constexpr(str.str() == "std::unique_ptr" || str.str() == "std::shared_ptr") {
-        return nullptr;
-    } else if constexpr(str.str() == "void") {
-        return;
-    } else if constexpr(str.str() == "bool") {
-        return false;
-    } else if constexpr(str.str() == "int") {
-        return -1;
-    } else if constexpr(str.str() == "std::optional") {
-        return std::nullopt;
+template <comptime::String s>
+constexpr auto msft_ltrim_space() -> auto {
+    if constexpr(comptime::starts_with<s, " ">) {
+        return msft_ltrim_space<comptime::remove_prefix<s, " "> >();
     } else {
-        return;
+        return s;
     }
 }
 
-#define bail(...)                         \
-    CUTIL_MACROS_PRINT_FUNC(__VA_ARGS__); \
-    return {}
+template <comptime::String ret>
+constexpr auto msft_strip_templates_fn() -> auto {
+    constexpr auto open = comptime::find<ret, "<">;
+    if constexpr(open == std::string_view::npos) {
+        return ret;
+    } else {
+        return comptime::substr<ret, 0, open>;
+    }
+}
+
+template <comptime::String func>
+constexpr auto extract_return_type_raw() -> auto {
+    constexpr auto str010 = comptime::remove_prefix<func, "static ">;
+    constexpr auto str020 = comptime::remove_prefix<str010, "virtual ">;
+    constexpr auto str030 = comptime::remove_prefix<str020, "const ">;
+    constexpr auto arrow  = comptime::find<str030, "->">;
+    if constexpr(arrow != std::string_view::npos) {
+        return msft_ltrim_space<comptime::substr<str030, arrow + 2>>();
+    } else {
+        constexpr auto space = comptime::find<str030, " ">;
+        if constexpr(space == std::string_view::npos) {
+            return comptime::String("");
+        } else {
+            return comptime::substr<str030, 0, space>;
+        }
+    }
+}
+
+template <comptime::String ret>
+constexpr auto normalize_return_type() -> auto {
+    constexpr auto s1 = comptime::remove_prefix<ret, "class ">;
+    constexpr auto s2 = comptime::remove_prefix<s1, "struct ">;
+    constexpr auto s3 = comptime::remove_prefix<s2, "enum ">;
+    constexpr auto s4 = msft_strip_templates_fn<s3>();
+    return comptime::remove_suffix<s4, " ">;
+}
+
+template <comptime::String func>
+constexpr auto bail_is_void_function() -> bool {
+    constexpr auto norm = normalize_return_type<extract_return_type_raw<func>()>();
+    return norm.empty() || norm.str() == "void";
+}
+
+#define bail(...)                                                                                         \
+    CUTIL_MACROS_PRINT_FUNC(__VA_ARGS__);                                                                  \
+    if constexpr(bail_is_void_function<CUTIL_COMPSTR(std::source_location::current().function_name())>()) { \
+        return;                                                                                            \
+    } else {                                                                                               \
+        return {};                                                                                         \
+    }
 
 #define ensure(cond, ...)                                      \
     if(!(cond)) {                                              \
