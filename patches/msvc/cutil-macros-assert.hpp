@@ -52,6 +52,21 @@ constexpr auto extract_return_type_raw() -> auto {
     if constexpr(arrow != std::string_view::npos) {
         return msft_ltrim_space<comptime::substr<str030, arrow + 2>>();
     } else {
+        // MSVC prefix form: "class std::optional<...> __cdecl ns::func(...)"
+        constexpr auto cdecl_pos = comptime::find<str030, " __cdecl ">;
+        if constexpr(cdecl_pos != std::string_view::npos) {
+            return msft_ltrim_space<comptime::remove_suffix<comptime::substr<str030, 0, cdecl_pos>, " ">>();
+        }
+        constexpr auto paren = comptime::find<str030, "(">;
+        if constexpr(paren != std::string_view::npos) {
+            constexpr auto chunk = comptime::substr<str030, 0, paren>;
+            constexpr auto last_space = comptime::rfind<chunk, " ">;
+            if constexpr(last_space == std::string_view::npos) {
+                return chunk;
+            } else {
+                return msft_ltrim_space<comptime::substr<chunk, 0, last_space>>();
+            }
+        }
         constexpr auto space = comptime::find<str030, " ">;
         if constexpr(space == std::string_view::npos) {
             return comptime::String("");

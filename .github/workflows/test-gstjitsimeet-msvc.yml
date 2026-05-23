@@ -347,6 +347,14 @@ jobs:
               'std::from_chars(str.data(), str.data() + str.size(), r, base)',
               'from_chars string_view iterators',
           )
+          path = 'crypto/base64.cpp'
+          text = open(path, encoding='utf-8').read()
+          if '#include <array>' not in text:
+              text = text.replace('#include <vector>\n', '#include <vector>\n#include <array>\n')
+              open(path, 'w', encoding='utf-8').write(text)
+              print('patched base64.cpp: +#include <array>')
+          else:
+              print('base64.cpp already includes <array>')
           PY
 
       - name: Configure + build gstjitsimeet (MSVC)
