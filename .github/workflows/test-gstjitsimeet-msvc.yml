@@ -120,31 +120,34 @@ jobs:
           if [ -f submodules/libjitsimeet/submodules.txt ] && [ ! -d submodules/libjitsimeet/submodules/crypto-utils ]; then
             (cd submodules/libjitsimeet && ../../deps/submod/submod clone)
           fi
-          # Git for Windows often checks out symlinks as plain text files; ninja needs real links.
-          ensure_symlink() {
-            local link="$1" target="$2"
-            if [ -e "$link/$3" ]; then return 0; fi
-            rm -rf "$link"
-            ln -s "$target" "$link"
-          }
-          ensure_symlink src/jitsi ../submodules/libjitsimeet/src async-websocket.cpp
-          ensure_symlink src/gstutil ../submodules/gstreamer-utils/src meson.build
-          cd submodules/libjitsimeet/src
-          for spec in \
-            crypto:../submodules/crypto-utils/src:meson.build \
-            json:../submodules/tinyjson/src:meson.build \
-            macros:../submodules/cutil-macros/src:macros.hpp \
-            util:../submodules/cutil/src:meson.build \
-            ws:../submodules/websocket-cpp/src:meson.build \
-            xml:../submodules/tinyxml/src:meson.build
-          do
-            IFS=: read -r name tgt marker <<< "$spec"
-            ensure_symlink "$name" "$tgt" "$marker"
-          done
-          cd ../../..
-          test -f src/jitsi/async-websocket.cpp
-          echo "symlinks OK:"; ls -la src/jitsi/async-websocket.cpp
           echo "Submodule tree:"; ls -la submodules/
+
+      # Git Bash symlinks are invisible to native pwsh/ninja; use directory junctions.
+      - name: Materialize source tree links (Windows junctions)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cd gstjitsimeet
+          function Ensure-Junction([string]$Link, [string]$Target, [string]$Marker) {
+            if (Test-Path (Join-Path $Link $Marker)) { return }
+            if (Test-Path $Link) { Remove-Item -LiteralPath $Link -Recurse -Force }
+            $targetPath = (Resolve-Path $Target).Path
+            New-Item -ItemType Junction -Path $Link -Target $targetPath | Out-Null
+          }
+          Ensure-Junction src/jitsi submodules/libjitsimeet/src async-websocket.cpp
+          Ensure-Junction src/gstutil submodules/gstreamer-utils/src meson.build
+          Push-Location submodules/libjitsimeet/src
+          Ensure-Junction crypto ../submodules/crypto-utils/src meson.build
+          Ensure-Junction json ../submodules/tinyjson/src meson.build
+          Ensure-Junction macros ../submodules/cutil-macros/src macros.hpp
+          Ensure-Junction util ../submodules/cutil/src meson.build
+          Ensure-Junction ws ../submodules/websocket-cpp/src meson.build
+          Ensure-Junction xml ../submodules/tinyxml/src meson.build
+          Pop-Location
+          if (-not (Test-Path src/jitsi/async-websocket.cpp)) {
+            throw "native access: src/jitsi/async-websocket.cpp missing after junction setup"
+          }
+          Write-Host "native tree OK:" (Get-Item src/jitsi/async-websocket.cpp).FullName
 
       # coop pins cpp_std=c++23 and GCC-only warning flags; MSVC needs c++latest
       # and cl-compatible options (same class of fix as gstjitsimeet below).
