@@ -26,7 +26,7 @@
 
 struct msft_bail_empty {
     template <class T>
-        requires(!std::is_void_v<T>)
+        requires(!std::is_void_v<T> && std::is_default_constructible_v<T>)
     operator T() const {
         return {};
     }

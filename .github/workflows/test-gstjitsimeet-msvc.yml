@@ -347,6 +347,18 @@ jobs:
               'std::from_chars(str.data(), str.data() + str.size(), r, base)',
               'from_chars string_view iterators',
           )
+          patch(
+              'jingle/serde/xml/format.hpp',
+              '#include "util/charconv.hpp"\n#include "xml/xml.hpp"',
+              '#include "../../../util/charconv.hpp"\n#include "../../../xml/xml.hpp"',
+              'serde xml format includes (avoid duplicate xml.hpp path on MSVC)',
+          )
+          patch(
+              'jingle/serde/json/format.hpp',
+              '#include "json/json.hpp"',
+              '#include "../../../json/json.hpp"',
+              'serde json format include (avoid duplicate json.hpp path on MSVC)',
+          )
           path = 'crypto/base64.cpp'
           text = open(path, encoding='utf-8').read()
           if '#include <array>' not in text:
