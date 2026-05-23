@@ -396,7 +396,7 @@ jobs:
                   i = end
               for start, end in reversed(blocks):
                   chunk = text[start:end]
-                  chunk = chunk.replace('ensure(', 'ensure_v(').replace('unwrap(', 'unwrap_v(')
+                  chunk = chunk.replace('ensure(', 'ensure_v(').replace('unwrap(', 'unwrap_v(').replace('unwrap_mut(', 'unwrap_v_mut(')
                   text = text[:start] + chunk + text[end:]
               if blocks:
                   path.write_text(text, encoding='utf-8')
