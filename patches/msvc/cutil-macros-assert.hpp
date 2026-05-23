@@ -21,27 +21,8 @@
 //
 // returns automatically detected error value
 //
-// MSVC __FUNCSIG__ parsing is only used to distinguish void from non-void
-// returns. Non-void error paths use return {} (nullopt/nullptr/false/0).
-
-template <comptime::String s>
-constexpr auto msft_ltrim_space() -> auto {
-    if constexpr(comptime::starts_with<s, " ">) {
-        return msft_ltrim_space<comptime::remove_prefix<s, " "> >();
-    } else {
-        return s;
-    }
-}
-
-template <comptime::String ret>
-constexpr auto msft_strip_templates_fn() -> auto {
-    constexpr auto open = comptime::find<ret, "<">;
-    if constexpr(open == std::string_view::npos) {
-        return ret;
-    } else {
-        return comptime::substr<ret, 0, open>;
-    }
-}
+// MSVC __FUNCSIG__ is only scanned for obvious void markers. Non-void error
+// paths use return {} (nullopt/nullptr/false/0).
 
 template <comptime::String func>
 constexpr auto msft_func_sig() -> auto {
@@ -50,47 +31,29 @@ constexpr auto msft_func_sig() -> auto {
     return comptime::remove_prefix<s2, "const ">();
 }
 
-template <comptime::String ret>
-constexpr auto msft_return_type_is_void() -> bool {
-    constexpr auto s1 = comptime::remove_prefix<ret, "class ">;
-    constexpr auto s2 = comptime::remove_prefix<s1, "struct ">;
-    constexpr auto s3 = comptime::remove_prefix<s2, "enum ">;
-    constexpr auto s4 = msft_strip_templates_fn<s3>();
-    constexpr auto norm = comptime::remove_suffix<s4, " ">();
-    return norm.empty() || norm.str() == "void";
+template <comptime::String sig>
+constexpr auto msft_sig_has_void_return() -> bool {
+    if constexpr(comptime::find<sig, "-> void"> != std::string_view::npos) {
+        return true;
+    }
+    if constexpr(comptime::find<sig, "->void"> != std::string_view::npos) {
+        return true;
+    }
+    if constexpr(comptime::starts_with<sig, "void __cdecl ">) {
+        return true;
+    }
+    if constexpr(comptime::starts_with<sig, "void __stdcall ">) {
+        return true;
+    }
+    if constexpr(comptime::starts_with<sig, "void __fastcall ">) {
+        return true;
+    }
+    return false;
 }
-
-template <comptime::String func, bool TrailingReturn, bool HasCdecl>
-struct msft_bail_is_void_function_impl {
-    static constexpr auto sig = msft_func_sig<func>();
-    static constexpr auto space = comptime::find<sig, " ">;
-    static constexpr bool value =
-        space == std::string_view::npos ? true : msft_return_type_is_void<comptime::substr<sig, 0, space>()>();
-};
-
-template <comptime::String func>
-struct msft_bail_is_void_function_impl<func, true, false> {
-    static constexpr auto sig  = msft_func_sig<func>();
-    static constexpr auto arrow = comptime::find<sig, "->">;
-    static constexpr bool value =
-        msft_return_type_is_void<msft_ltrim_space<comptime::substr<sig, arrow + 2>>()>();
-};
-
-template <comptime::String func>
-struct msft_bail_is_void_function_impl<func, false, true> {
-    static constexpr auto sig       = msft_func_sig<func>();
-    static constexpr auto cdecl_pos = comptime::find<sig, " __cdecl ">;
-    static constexpr bool value     = msft_return_type_is_void<
-        msft_ltrim_space<comptime::remove_suffix<comptime::substr<sig, 0, cdecl_pos>, " ">>()>();
-};
 
 template <comptime::String func>
 constexpr auto bail_is_void_function() -> bool {
-    constexpr auto sig = msft_func_sig<func>();
-    return msft_bail_is_void_function_impl<
-        func,
-        comptime::find<sig, "->"> != std::string_view::npos,
-        comptime::find<sig, " __cdecl "> != std::string_view::npos>::value;
+    return msft_sig_has_void_return<msft_func_sig<func>()>();
 }
 
 #define bail(...)                                                                                         \
