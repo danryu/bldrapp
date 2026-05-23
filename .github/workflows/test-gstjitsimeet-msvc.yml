@@ -1,9 +1,6 @@
-# PROBE (manual): can UPSTREAM gstjitsimeet + its C++23 submodule tree build with
-# MSVC, against an official (MSVC) GStreamer release? This establishes a baseline —
-# if upstream builds, MSVC support is real and any breakage is fork-specific; if it
-# fails, MSVC support must be added at the source. Throwaway diagnostic, EXPECTED to
-# fail initially — read the logs, port what breaks, repeat. Defaults to upstream
-# (mojyack); flip the inputs to probe the danryu fork once a baseline exists.
+# Build gstjitsimeet with MSVC on Windows from danryu fork msvc branches.
+# Patches live in fork repos; this workflow only materializes symlinks, builds coop,
+# and compiles the plugin. Override inputs to probe upstream or other refs.
 name: TEST - gstjitsimeet on MSVC
 
 on:
@@ -12,19 +9,23 @@ on:
       gstjitsimeet_repo:
         description: 'gstjitsimeet repo (owner/name)'
         required: false
-        default: 'mojyack/gstjitsimeet'
+        default: 'danryu/gstjitsimeet'
       gstjitsimeet_ref:
         description: 'gstjitsimeet branch/ref (blank = repo default)'
         required: false
-        default: ''
+        default: 'msvc'
       submod_repo:
         description: 'submod repo (owner/name)'
         required: false
-        default: 'mojyack/submod'
+        default: 'danryu/submod'
       coop_repo:
         description: 'coop repo (owner/name)'
         required: false
-        default: 'mojyack/coop'
+        default: 'danryu/coop'
+      coop_ref:
+        description: 'coop branch/ref (blank = repo default)'
+        required: false
+        default: 'msvc'
 
 jobs:
   probe:
@@ -33,7 +34,7 @@ jobs:
     env:
       VCPKG_BINARY_SOURCES: clear;x-gha,readwrite
     steps:
-      - name: Checkout bldrapp (patches + cache key)
+      - name: Checkout bldrapp (vcpkg cache key)
         uses: actions/checkout@v4
 
       - name: Setup MSVC (x64) environment
@@ -173,8 +174,10 @@ jobs:
           # submod populates submodules/ from this repo's own submodules.txt (whatever
           # deps/revs upstream pins). coop is a separate pkg-config dep built below.
           mkdir -p deps && cd deps
+          COOP_REF='${{ github.event.inputs.coop_ref }}'
+          if [ -n "${COOP_REF}" ]; then COOP_BRANCH=(-b "${COOP_REF}"); else COOP_BRANCH=(); fi
           git clone "https://github.com/${{ github.event.inputs.submod_repo }}.git" submod
-          git clone "https://github.com/${{ github.event.inputs.coop_repo }}.git" coop
+          git clone "${COOP_BRANCH[@]}" "https://github.com/${{ github.event.inputs.coop_repo }}.git" coop
           cd ..
           ./deps/submod/submod clone
           # libjitsimeet keeps nested submodules/ for its in-tree symlinks (ws, xml, …).
@@ -215,44 +218,6 @@ jobs:
           rm -rf src/jitsi/ws/macros src/jitsi/ws/util
           echo "removed nested serde + ws symlink copies"
 
-      # coop pins cpp_std=c++23 and GCC-only warning flags; MSVC needs c++latest
-      # and cl-compatible options (same class of fix as gstjitsimeet below).
-      - name: Patch coop meson.build flags for MSVC (probe-time)
-        shell: bash
-        run: |
-          cd gstjitsimeet/deps/coop
-          python - <<'PY'
-          path = 'meson.build'
-          gcc_flags = ["'-Wfatal-errors'", "'-Wno-missing-field-initializers'"]
-          out, inserted = [], False
-          for ln in open(path, encoding='utf-8').read().splitlines():
-              if 'add_project_arguments' in ln and any(f in ln for f in gcc_flags):
-                  if not inserted:
-                      out += [
-                          "cpp_compiler = meson.get_compiler('cpp')",
-                          "if cpp_compiler.get_id() == 'msvc'",
-                          "  add_project_arguments(['/W3', '/DNOMINMAX'], language: 'cpp')",
-                          "else",
-                          "  add_project_arguments('-Wfatal-errors', language: 'cpp')",
-                          "  add_project_arguments('-Wno-missing-field-initializers', language: 'cpp')",
-                          "endif",
-                      ]
-                      inserted = True
-                  continue
-              out.append(ln)
-          open(path, 'w', encoding='utf-8').write('\n'.join(out) + '\n')
-          print('patched coop meson.build' if inserted else 'NO MATCH — coop meson.build changed upstream')
-          PY
-          # Windows header mistakenly pulls POSIX unistd.h; runner uses Winsock instead.
-          python - <<'PY'
-          path = 'include/coop/thread-event-windows.hpp'
-          text = open(path, encoding='utf-8').read()
-          text = text.replace('#include <unistd.h>\n\n', '')
-          open(path, 'w', encoding='utf-8').write(text)
-          print('patched coop thread-event-windows.hpp')
-          PY
-          echo "--- coop meson.build (top) ---"; head -15 meson.build
-
       - name: Build coop (MSVC)
         shell: pwsh
         run: |
@@ -263,339 +228,6 @@ jobs:
           meson setup build --buildtype=release --default-library=static --prefix="$prefix" -Dcpp_std=c++latest
           meson install -C build
           Get-ChildItem "$prefix\lib\pkgconfig"
-
-      # Make the GCC/Clang-only flags compiler-conditional so the probe reaches actual
-      # source compilation under MSVC. This transform is what we would upstream into
-      # gstjitsimeet/meson.build if the probe succeeds.
-      - name: Patch gstjitsimeet meson.build flags for MSVC (probe-time)
-        shell: bash
-        run: |
-          cd gstjitsimeet
-          python - <<'PY'
-          path = 'meson.build'
-          gcc_flags = ['-Wfatal-errors', '-fpermissive', '-Wno-narrowing',
-                       '-Wno-missing-field-initializers', '-std=c++23']
-          out, inserted = [], False
-          for ln in open(path, encoding='utf-8').read().splitlines():
-              if 'add_project_arguments' in ln and any(f"'{f}'" in ln for f in gcc_flags):
-                  if not inserted:
-                      out += [
-                          "cpp_compiler = meson.get_compiler('cpp')",
-                          "if cpp_compiler.get_id() == 'msvc'",
-                          "  add_project_arguments(['/std:c++latest', '/permissive-', '/Zc:preprocessor', '/EHsc', '/bigobj', '/DNOMINMAX', '/D_ITERATOR_DEBUG_LEVEL=0', '/MD'], language : 'cpp')",
-                          "  add_project_link_arguments('/NODEFAULTLIB:LIBCMTD', language: 'cpp')",
-                          "  add_project_link_arguments('/NODEFAULTLIB:MSVCRTD', language: 'cpp')",
-                          "  add_project_link_arguments('/OPT:NOREF', language: 'cpp')",
-                          "else",
-                          "  add_project_arguments(['-Wfatal-errors', '-fpermissive', '-Wno-narrowing', '-Wno-missing-field-initializers', '-std=c++23'], language : 'cpp')",
-                          "endif",
-                      ]
-                      inserted = True
-                  continue
-              out.append(ln)
-          open(path, 'w', encoding='utf-8').write('\n'.join(out) + '\n')
-          print('patched' if inserted else 'NO MATCH — meson.build flags changed')
-          PY
-          # props.cpp includes jitsi headers ("macros/…") but lives under src/; examples
-          # pull in gstutil macros too — skip both for the plugin-only MSVC probe.
-          python - <<'PY'
-          import re
-          path = 'meson.build'
-          text = open(path, encoding='utf-8').read()
-          text = re.sub(
-              r"\n# examples\n.*",
-              "\n",
-              text,
-              count=1,
-              flags=re.S,
-          )
-          old = "  ) + libjitsimeet_src,\n  dependencies : deps + libjitsimeet_deps,"
-          new = (
-              "  ) + libjitsimeet_src,\n"
-              "  include_directories : include_directories('src/jitsi'),\n"
-              "  dependencies : deps + libjitsimeet_deps,"
-          )
-          if old not in text:
-              raise SystemExit('meson.build plugin stanza changed upstream')
-          text = text.replace(old, new, 1)
-          open(path, 'w', encoding='utf-8').write(text)
-          print('patched meson.build: +src/jitsi include, -examples')
-          PY
-          echo "--- meson.build (top) ---"; head -35 meson.build
-
-      - name: Patch cutil-macros for MSVC (probe-time)
-        shell: bash
-        run: |
-          set -e
-          # Materialize copies macros before submodule patches; install into the tree
-          # that Meson actually compiles against.
-          cp patches/msvc/cutil-macros-assert.hpp gstjitsimeet/src/jitsi/macros/assert.hpp
-          cp patches/msvc/cutil-macros-coop-assert.hpp gstjitsimeet/src/jitsi/macros/coop-assert.hpp
-          echo "installed MSVC cutil-macros patches into src/jitsi/macros/"
-
-      - name: Patch libjitsimeet sources for MSVC (probe-time)
-        shell: bash
-        run: |
-          set -e
-          cd gstjitsimeet/src/jitsi
-          python - <<'PY'
-          def patch(path, old, new, label):
-              text = open(path, encoding='utf-8').read()
-              if old not in text:
-                  raise SystemExit(f'missing {label} in {path}')
-              open(path, 'w', encoding='utf-8').write(text.replace(old, new))
-              print(f'patched {label} in {path}')
-
-          patch(
-              'colibri.cpp',
-              '.port      = ws_uri.port,',
-              '.port      = static_cast<int>(ws_uri.port),',
-              'colibri port cast',
-          )
-          patch(
-              'util/charconv.hpp',
-              'std::from_chars(str.begin(), str.end(), r, base)',
-              'std::from_chars(str.data(), str.data() + str.size(), r, base)',
-              'from_chars string_view iterators',
-          )
-          patch(
-              'jingle/serde/xml/format.hpp',
-              '#include "util/charconv.hpp"\n#include "xml/xml.hpp"',
-              '#include "../../../util/charconv.hpp"\n#include "../../../xml/xml.hpp"',
-              'serde xml format includes (avoid duplicate xml.hpp path on MSVC)',
-          )
-          patch(
-              'jingle/serde/json/format.hpp',
-              '#include "json/json.hpp"',
-              '#include "../../../json/json.hpp"',
-              'serde json format include (avoid duplicate json.hpp path on MSVC)',
-          )
-          path = 'crypto/base64.cpp'
-          text = open(path, encoding='utf-8').read()
-          if '#include <array>' not in text:
-              text = text.replace('#include <vector>\n', '#include <vector>\n#include <array>\n')
-              open(path, 'w', encoding='utf-8').write(text)
-              print('patched base64.cpp: +#include <array>')
-          else:
-              print('base64.cpp already includes <array>')
-          path = 'crypto/sha.cpp'
-          text = open(path, encoding='utf-8').read()
-          text = text.replace(
-              '    unwrap(ret, calc_generic<20>(data, "SHA1"));\n    return ret;',
-              '    return calc_generic<20>(data, "SHA1");',
-          )
-          text = text.replace(
-              '    unwrap(ret, calc_generic<32>(data, "SHA256"));\n    return ret;',
-              '    return calc_generic<32>(data, "SHA256");',
-          )
-          text = text.replace('ensure(ctx.get() != NULL);', 'if(ctx.get() == NULL) return std::nullopt;')
-          text = text.replace('ensure(md != NULL);', 'if(md == NULL) return std::nullopt;')
-          text = text.replace(
-              'ensure(EVP_DigestInit_ex(ctx.get(), md, NULL) == 1);',
-              'if(EVP_DigestInit_ex(ctx.get(), md, NULL) != 1) return std::nullopt;',
-          )
-          text = text.replace(
-              'ensure(EVP_DigestUpdate(ctx.get(), data.data(), data.size()) == 1);',
-              'if(EVP_DigestUpdate(ctx.get(), data.data(), data.size()) != 1) return std::nullopt;',
-          )
-          text = text.replace(
-              'ensure(EVP_DigestFinal_ex(ctx.get(), reinterpret_cast<unsigned char*>(buf.data()), NULL) == 1);',
-              'if(EVP_DigestFinal_ex(ctx.get(), reinterpret_cast<unsigned char*>(buf.data()), NULL) != 1) return std::nullopt;',
-          )
-          open(path, 'w', encoding='utf-8').write(text)
-          print('patched sha.cpp: drop redundant unwrap + manual nullopt errors')
-
-          # MSVC mangles top-level const on pointer params (QEBD vs PEBD); match headers.
-          patch(
-              'jingle-handler/hostaddr.cpp',
-              'auto hostname_to_addr(const char* const hostname) -> std::string {',
-              'auto hostname_to_addr(const char* hostname) -> std::string {',
-              'hostaddr signature match header',
-          )
-          patch(
-              'jingle-handler/cert.cpp',
-              'auto cert_delete(const Cert* const cert) -> void {',
-              'auto cert_delete(const Cert* cert) -> void {',
-              'cert_delete signature match header',
-          )
-          patch(
-              'jingle-handler/cert.cpp',
-              'auto serialize_cert_der(const Cert* const cert) -> std::optional<std::vector<std::byte>> {',
-              'auto serialize_cert_der(const Cert* cert) -> std::optional<std::vector<std::byte>> {',
-              'serialize_cert_der signature match header',
-          )
-          patch(
-              'jingle-handler/cert.cpp',
-              'auto serialize_private_key_der(const Cert* const cert) -> std::optional<std::vector<std::byte>> {',
-              'auto serialize_private_key_der(const Cert* cert) -> std::optional<std::vector<std::byte>> {',
-              'serialize_private_key_der signature match header',
-          )
-          patch(
-              'jingle-handler/cert.cpp',
-              'auto serialize_private_key_pkcs8_der(const Cert* const cert) -> std::optional<std::vector<std::byte>> {',
-              'auto serialize_private_key_pkcs8_der(const Cert* cert) -> std::optional<std::vector<std::byte>> {',
-              'serialize_private_key_pkcs8_der signature match header',
-          )
-
-          MSVC_OPT_MACROS = '''
-          // MSVC: `return {}` in trailing-return optional methods is diagnosed as void.
-          #undef bail
-          #undef ensure
-          #undef unwrap
-          #undef unwrap_mut
-          #define bail(...) do { CUTIL_MACROS_PRINT_FUNC("assertion failed" __VA_OPT__(": ") __VA_ARGS__); return std::nullopt; } while(0)
-          #define ensure(cond, ...) do { if(!(cond)) { CUTIL_MACROS_PRINT_FUNC("assertion failed" __VA_OPT__(": ") __VA_ARGS__); return std::nullopt; } } while(0)
-          #define unwrap(var, opt, ...) const auto var##_o = (opt); if(!(var##_o)) { return std::nullopt; } const auto& var = *var##_o;
-          #define unwrap_mut(var, opt, ...) const auto var##_o = (opt); if(!(var##_o)) { return std::nullopt; } auto& var = *var##_o;
-
-          '''
-
-          def inject_msvc_optional_macros(path: str) -> None:
-              text = open(path, encoding='utf-8').read()
-              needle = '#include "macros/unwrap.hpp"\n'
-              if needle not in text:
-                  raise SystemExit(f'missing unwrap include in {path}')
-              if 'MSVC: `return {}` in trailing-return optional methods' in text:
-                  print(f'skip {path}: MSVC optional macros already injected')
-                  return
-              open(path, 'w', encoding='utf-8').write(text.replace(needle, needle + MSVC_OPT_MACROS))
-              print(f'patched {path}: injected MSVC optional bail macros')
-
-          patch(
-              'json/lexer.cpp',
-              '    auto expect_string(const std::string_view expect) -> bool {\n'
-              '        unwrap(str, reader.read(expect.size()));\n'
-              '        return str == expect;',
-              '    auto expect_string(const std::string_view expect) -> bool {\n'
-              '        const auto str_o = reader.read(expect.size());\n'
-              '        if(!str_o) return false;\n'
-              '        const auto& str = *str_o;\n'
-              '        return str == expect;',
-              'lexer expect_string bool bail',
-          )
-          patch(
-              'json/parser.cpp',
-              '    auto peek() -> const Token* {\n'
-              '        ensure(cursor < tokens.size());\n'
-              '        return &tokens[cursor];\n'
-              '    }',
-              '    auto peek() -> const Token* {\n'
-              '        if(!(cursor < tokens.size())) return nullptr;\n'
-              '        return &tokens[cursor];\n'
-              '    }',
-              'json parser peek nullptr bail',
-          )
-          patch(
-              'json/parser.cpp',
-              '    template <class T>\n'
-              '    auto peek_type() -> const T* {\n'
-              '        unwrap(next, peek());\n'
-              '        return next.get<T>();\n'
-              '    }',
-              '    template <class T>\n'
-              '    auto peek_type() -> const T* {\n'
-              '        const auto next_o = peek();\n'
-              '        if(!next_o) return nullptr;\n'
-              '        const auto& next = *next_o;\n'
-              '        return next.get<T>();\n'
-              '    }',
-              'json parser peek_type nullptr bail',
-          )
-          patch(
-              'json/parser.cpp',
-              '    auto read() -> const Token* {\n'
-              '        unwrap(next, peek());\n'
-              '        cursor += 1;\n'
-              '        return &next;\n'
-              '    }',
-              '    auto read() -> const Token* {\n'
-              '        const auto next_o = peek();\n'
-              '        if(!next_o) return nullptr;\n'
-              '        const auto& next = *next_o;\n'
-              '        cursor += 1;\n'
-              '        return &next;\n'
-              '    }',
-              'json parser read nullptr bail',
-          )
-          patch(
-              'json/parser.cpp',
-              '    template <class T>\n'
-              '    auto read_type() -> const T* {\n'
-              '        unwrap(next, read());\n'
-              '        return next.get<T>();\n'
-              '    }',
-              '    template <class T>\n'
-              '    auto read_type() -> const T* {\n'
-              '        const auto next_o = read();\n'
-              '        if(!next_o) return nullptr;\n'
-              '        const auto& next = *next_o;\n'
-              '        return next.get<T>();\n'
-              '    }',
-              'json parser read_type nullptr bail',
-          )
-          for opt_cpp in ('xml/parser.cpp', 'json/lexer.cpp', 'json/parser.cpp'):
-              inject_msvc_optional_macros(opt_cpp)
-
-          WS_NDEBUG_GUARD = '#ifndef NDEBUG\n#define NDEBUG\n#endif\n#undef _DEBUG\n'
-          for ws_cpp in ('ws/impl.cpp', 'ws/client.cpp'):
-              path = ws_cpp
-              text = open(path, encoding='utf-8').read()
-              if 'WS_NDEBUG_GUARD' in text:
-                  print(f'skip {path}: NDEBUG guard already present')
-                  continue
-              if '#include <libwebsockets.h>' not in text:
-                  raise SystemExit(f'missing libwebsockets include in {path}')
-              text = text.replace(
-                  '#include <libwebsockets.h>',
-                  WS_NDEBUG_GUARD + '#include <libwebsockets.h>',
-                  1,
-              )
-              open(path, 'w', encoding='utf-8').write(text)
-              print(f'patched {path}: NDEBUG guard before libwebsockets.h')
-
-          import re
-          from pathlib import Path
-
-          def patch_void_bodies(path: Path) -> int:
-              text = path.read_text(encoding='utf-8')
-              blocks = []
-              i = 0
-              while True:
-                  j = text.find('-> void', i)
-                  if j == -1:
-                      break
-                  k = text.find('{', j)
-                  if k == -1:
-                      break
-                  depth = 0
-                  end = k
-                  for pos in range(k, len(text)):
-                      if text[pos] == '{':
-                          depth += 1
-                      elif text[pos] == '}':
-                          depth -= 1
-                          if depth == 0:
-                              end = pos + 1
-                              break
-                  blocks.append((k, end))
-                  i = end
-              for start, end in reversed(blocks):
-                  chunk = text[start:end]
-                  chunk = chunk.replace('ensure(', 'ensure_v(').replace('unwrap(', 'unwrap_v(').replace('unwrap_mut(', 'unwrap_v_mut(')
-                  text = text[:start] + chunk + text[end:]
-              if blocks:
-                  path.write_text(text, encoding='utf-8')
-              return len(blocks)
-
-          src_root = Path('..')
-          total = 0
-          for cpp in src_root.rglob('*.cpp'):
-              n = patch_void_bodies(cpp)
-              if n:
-                  print(f'patched {cpp}: {n} void bodies')
-                  total += n
-          print(f'void-body patch complete: {total} bodies across {src_root}')
-          PY
 
       - name: Configure + build gstjitsimeet (MSVC)
         shell: pwsh
