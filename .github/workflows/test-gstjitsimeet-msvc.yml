@@ -582,3 +582,18 @@ jobs:
           cd gstjitsimeet
           meson setup builddir --buildtype=release -Dcpp_std=c++latest
           meson compile -C builddir
+          if ($LASTEXITCODE -ne 0) {
+            $objs = @(
+              'builddir/gstjitsimeet.dll.p/src_jitsi_jingle-handler_cert.cpp.obj',
+              'builddir/gstjitsimeet.dll.p/src_jitsi_jingle-handler_hostaddr.cpp.obj'
+            )
+            foreach ($obj in $objs) {
+              if (Test-Path $obj) {
+                Write-Host "=== dumpbin $obj ($((Get-Item $obj).Length) bytes) ==="
+                dumpbin /SYMBOLS $obj | Select-String -Pattern 'cert_|hostname_to_addr|SECT' | Select-Object -First 40
+              } else {
+                Write-Host "MISSING $obj"
+              }
+            }
+            exit 1
+          }
