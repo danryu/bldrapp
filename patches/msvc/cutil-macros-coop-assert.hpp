@@ -16,10 +16,9 @@ constexpr auto coop_marker_offset() -> std::size_t {
     }
 }
 
-template <comptime::String func>
-constexpr auto coop_is_void_async() -> bool {
-    constexpr auto ret_raw = extract_return_type_raw<func>();
-    constexpr auto start   = coop_marker_offset<ret_raw>();
+template <comptime::String ret_raw>
+constexpr auto coop_async_inner_is_void() -> bool {
+    constexpr auto start = coop_marker_offset<ret_raw>();
     if constexpr(start == std::string_view::npos) {
         return true;
     } else {
@@ -27,9 +26,23 @@ constexpr auto coop_is_void_async() -> bool {
         if constexpr(close == std::string_view::npos || close <= start) {
             return true;
         } else {
-            constexpr auto inner = comptime::substr<ret_raw, start, close - start>;
-            return normalize_return_type<inner>().str() == "void";
+            return msft_return_type_is_void<comptime::substr<ret_raw, start, close - start>()>();
         }
+    }
+}
+
+template <comptime::String func>
+constexpr auto coop_is_void_async() -> bool {
+    constexpr auto sig = msft_func_sig<func>();
+    constexpr auto arrow = comptime::find<sig, "->">;
+    if constexpr(arrow != std::string_view::npos) {
+        return coop_async_inner_is_void<msft_ltrim_space<comptime::substr<sig, arrow + 2>>()>();
+    } else if constexpr(comptime::find<sig, " __cdecl "> != std::string_view::npos) {
+        constexpr auto cdecl_pos = comptime::find<sig, " __cdecl ">;
+        return coop_async_inner_is_void<
+            msft_ltrim_space<comptime::remove_suffix<comptime::substr<sig, 0, cdecl_pos>, " ">>()>();
+    } else {
+        return true;
     }
 }
 

@@ -44,51 +44,40 @@ constexpr auto msft_strip_templates_fn() -> auto {
 }
 
 template <comptime::String func>
-constexpr auto extract_return_type_raw() -> auto {
-    constexpr auto str010 = comptime::remove_prefix<func, "static ">;
-    constexpr auto str020 = comptime::remove_prefix<str010, "virtual ">;
-    constexpr auto str030 = comptime::remove_prefix<str020, "const ">;
-    constexpr auto arrow  = comptime::find<str030, "->">;
-    if constexpr(arrow != std::string_view::npos) {
-        return msft_ltrim_space<comptime::substr<str030, arrow + 2>>();
-    } else {
-        // MSVC prefix form: "class std::optional<...> __cdecl ns::func(...)"
-        constexpr auto cdecl_pos = comptime::find<str030, " __cdecl ">;
-        if constexpr(cdecl_pos != std::string_view::npos) {
-            return msft_ltrim_space<comptime::remove_suffix<comptime::substr<str030, 0, cdecl_pos>, " ">>();
-        }
-        constexpr auto paren = comptime::find<str030, "(">;
-        if constexpr(paren != std::string_view::npos) {
-            constexpr auto chunk = comptime::substr<str030, 0, paren>;
-            constexpr auto last_space = comptime::rfind<chunk, " ">;
-            if constexpr(last_space == std::string_view::npos) {
-                return chunk;
-            } else {
-                return msft_ltrim_space<comptime::substr<chunk, 0, last_space>>();
-            }
-        }
-        constexpr auto space = comptime::find<str030, " ">;
-        if constexpr(space == std::string_view::npos) {
-            return comptime::String("");
-        } else {
-            return comptime::substr<str030, 0, space>;
-        }
-    }
+constexpr auto msft_func_sig() -> auto {
+    constexpr auto s1 = comptime::remove_prefix<func, "static ">;
+    constexpr auto s2 = comptime::remove_prefix<s1, "virtual ">;
+    return comptime::remove_prefix<s2, "const ">();
 }
 
 template <comptime::String ret>
-constexpr auto normalize_return_type() -> auto {
+constexpr auto msft_return_type_is_void() -> bool {
     constexpr auto s1 = comptime::remove_prefix<ret, "class ">;
     constexpr auto s2 = comptime::remove_prefix<s1, "struct ">;
     constexpr auto s3 = comptime::remove_prefix<s2, "enum ">;
     constexpr auto s4 = msft_strip_templates_fn<s3>();
-    return comptime::remove_suffix<s4, " ">;
+    constexpr auto norm = comptime::remove_suffix<s4, " ">();
+    return norm.empty() || norm.str() == "void";
 }
 
 template <comptime::String func>
 constexpr auto bail_is_void_function() -> bool {
-    constexpr auto norm = normalize_return_type<extract_return_type_raw<func>()>();
-    return norm.empty() || norm.str() == "void";
+    constexpr auto sig = msft_func_sig<func>();
+    constexpr auto arrow = comptime::find<sig, "->">;
+    if constexpr(arrow != std::string_view::npos) {
+        return msft_return_type_is_void<msft_ltrim_space<comptime::substr<sig, arrow + 2>>()>();
+    } else if constexpr(comptime::find<sig, " __cdecl "> != std::string_view::npos) {
+        constexpr auto cdecl_pos = comptime::find<sig, " __cdecl ">;
+        return msft_return_type_is_void<
+            msft_ltrim_space<comptime::remove_suffix<comptime::substr<sig, 0, cdecl_pos>, " ">>()>();
+    } else {
+        constexpr auto space = comptime::find<sig, " ">;
+        if constexpr(space == std::string_view::npos) {
+            return true;
+        } else {
+            return msft_return_type_is_void<comptime::substr<sig, 0, space>()>();
+        }
+    }
 }
 
 #define bail(...)                                                                                         \
