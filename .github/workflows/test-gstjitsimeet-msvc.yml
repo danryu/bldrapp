@@ -285,6 +285,7 @@ jobs:
                           "  add_project_arguments(['/std:c++latest', '/permissive-', '/Zc:preprocessor', '/EHsc', '/bigobj', '/DNOMINMAX', '/D_ITERATOR_DEBUG_LEVEL=0', '/MD'], language : 'cpp')",
                           "  add_project_link_arguments('/NODEFAULTLIB:LIBCMTD', language: 'cpp')",
                           "  add_project_link_arguments('/NODEFAULTLIB:MSVCRTD', language: 'cpp')",
+                          "  add_project_link_arguments('/OPT:NOREF', language: 'cpp')",
                           "else",
                           "  add_project_arguments(['-Wfatal-errors', '-fpermissive', '-Wno-narrowing', '-Wno-missing-field-initializers', '-std=c++23'], language : 'cpp')",
                           "endif",
