@@ -31,8 +31,6 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 60
     env:
-      # windows-2022 ships vcpkg at C:\vcpkg; cache the installed tree below.
-      VCPKG_ROOT: C:\vcpkg
       VCPKG_BINARY_SOURCES: clear;x-gha,readwrite
     steps:
       - name: Checkout bldrapp (patches + cache key)
@@ -42,6 +40,15 @@ jobs:
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
+
+      # msvc-dev-cmd points VCPKG_ROOT at VS manifest-mode vcpkg (no classic install).
+      # GHA's standalone classic vcpkg lives at C:\vcpkg — use that for port installs + cache.
+      - name: Pin vcpkg to runner classic instance
+        shell: pwsh
+        run: |
+          "VCPKG_ROOT=C:\vcpkg" >> $env:GITHUB_ENV
+          "VCPKG_INSTALLATION_ROOT=C:\vcpkg" >> $env:GITHUB_ENV
+          Write-Host "Using classic vcpkg at C:\vcpkg"
 
       # x-gha needs these two endpoints exposed as env vars to talk to the cache backend.
       - name: Expose GitHub Actions cache to vcpkg
@@ -91,15 +98,15 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $vcpkgRoot = $env:VCPKG_ROOT
-          Write-Host "Cache miss — building vcpkg ports (expect ~10 min)"
+          $vcpkgRoot = 'C:\vcpkg'
+          Write-Host "Cache miss — building vcpkg ports at $vcpkgRoot (expect ~10 min)"
           & "$vcpkgRoot\vcpkg.exe" install openssl:x64-windows libwebsockets:x64-windows
 
       - name: Ensure vcpkg pkg-config files (MSVC)
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $vcpkgRoot = $env:VCPKG_ROOT
+          $vcpkgRoot = 'C:\vcpkg'
           if ("${{ steps.vcpkg-cache.outputs.cache-hit }}" -eq 'true') {
             Write-Host "vcpkg cache hit — skipped port build"
           } else {
@@ -314,7 +321,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $gst   = 'C:\Program Files\gstreamer\1.0\msvc_x86_64\lib\pkgconfig'
-          $vcpkg = "$env:VCPKG_ROOT\installed\x64-windows\lib\pkgconfig"
+          $vcpkg = 'C:\vcpkg\installed\x64-windows\lib\pkgconfig'
           $coop  = "$env:GITHUB_WORKSPACE\gstjitsimeet\deps\coop-install\lib\pkgconfig"
           $env:PKG_CONFIG_PATH = "$gst;$vcpkg;$coop"
           Write-Host "PKG_CONFIG_PATH = $env:PKG_CONFIG_PATH"
