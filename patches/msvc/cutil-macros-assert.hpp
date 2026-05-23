@@ -39,12 +39,6 @@ constexpr auto type_string_to_type() -> auto {
     }
 }
 
-// MSVC parses dependent remove_region<...> as operator< unless wrapped.
-template <comptime::String str>
-struct msft_remove_angle_regions {
-    static constexpr auto value = comptime::remove_region<str, 60, 62>;
-};
-
 template <comptime::String ret>
 constexpr auto msft_strip_templates_fn() -> auto {
     constexpr auto open = comptime::find<ret, "<">;
@@ -54,11 +48,6 @@ constexpr auto msft_strip_templates_fn() -> auto {
         return comptime::substr<ret, 0, open>;
     }
 }
-
-template <comptime::String ret>
-struct msft_strip_templates {
-    static constexpr auto value = msft_strip_templates_fn<ret>();
-};
 
 // MSVC __FUNCSIG__ uses trailing-return syntax ("auto __cdecl foo(...) -> ReturnType").
 template <comptime::String func>
@@ -70,12 +59,12 @@ constexpr auto extract_return_type_raw() -> auto {
     if constexpr(arrow != std::string_view::npos) {
         return comptime::substr<str030, arrow + 4>;
     } else {
-        constexpr auto str040 = msft_remove_angle_regions<str030>::value;
-        constexpr auto space  = comptime::find<str040, " ">;
+        // Fallback: first token before a space (GCC-style signatures).
+        constexpr auto space = comptime::find<str030, " ">;
         if constexpr(space == std::string_view::npos) {
             return comptime::String("");
         } else {
-            return comptime::substr<str040, 0, space>;
+            return comptime::substr<str030, 0, space>;
         }
     }
 }
@@ -85,7 +74,7 @@ constexpr auto normalize_return_type() -> auto {
     constexpr auto s1 = comptime::remove_prefix<ret, "class ">;
     constexpr auto s2 = comptime::remove_prefix<s1, "struct ">;
     constexpr auto s3 = comptime::remove_prefix<s2, "enum ">;
-    constexpr auto s4 = msft_strip_templates<s3>::value;
+    constexpr auto s4 = msft_strip_templates_fn<s3>();
     return comptime::remove_suffix<s4, " ">;
 }
 

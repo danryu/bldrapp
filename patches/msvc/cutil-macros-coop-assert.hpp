@@ -3,25 +3,32 @@
 
 #include "assert.hpp"
 
-template <comptime::String str>
-struct msft_find_angle_region {
-    static constexpr auto value = comptime::find_region<str, 60, 62>;
-};
+template <comptime::String ret_raw>
+constexpr auto coop_marker_offset() -> std::size_t {
+    constexpr auto gen   = comptime::find<ret_raw, "coop::CoGenerator<">;
+    constexpr auto async = comptime::find<ret_raw, "coop::Async<">;
+    if constexpr(gen != std::string_view::npos) {
+        return gen + comptime::String("coop::CoGenerator<").size();
+    } else if constexpr(async != std::string_view::npos) {
+        return async + comptime::String("coop::Async<").size();
+    } else {
+        return std::string_view::npos;
+    }
+}
 
 // MSVC expands coop::Async<T> to coop::CoGenerator<T> in __FUNCSIG__.
 template <comptime::String func>
 constexpr auto coop_async_inner_type() -> auto {
     constexpr auto ret_raw = extract_return_type_raw<func>();
-    constexpr auto async   = comptime::find<ret_raw, "coop::Async<">;
-    constexpr auto gen     = comptime::find<ret_raw, "coop::CoGenerator<">;
-    if constexpr(async == std::string_view::npos && gen == std::string_view::npos) {
+    constexpr auto start   = coop_marker_offset<ret_raw>();
+    if constexpr(start == std::string_view::npos) {
         return comptime::String("");
     } else {
-        constexpr auto region = msft_find_angle_region<ret_raw>::value;
-        if constexpr(region.first == std::string_view::npos) {
+        constexpr auto close = comptime::rfind<ret_raw, ">">;
+        if constexpr(close == std::string_view::npos || close <= start) {
             return comptime::String("");
         } else {
-            constexpr auto inner = comptime::substr<ret_raw, region.first + 1, region.second - 2>;
+            constexpr auto inner = comptime::substr<ret_raw, start, close - start>;
             return normalize_return_type<inner>();
         }
     }
