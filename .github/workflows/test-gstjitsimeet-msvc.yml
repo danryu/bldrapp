@@ -369,34 +369,47 @@ jobs:
           print('patched sha.cpp: drop redundant unwrap')
 
           import re
-          path = '../jitsibin.cpp'
-          text = open(path, encoding='utf-8').read()
-          blocks = []
-          i = 0
-          while True:
-              j = text.find('-> void', i)
-              if j == -1:
-                  break
-              k = text.find('{', j)
-              if k == -1:
-                  break
-              depth = 0
-              end = k
-              for pos in range(k, len(text)):
-                  if text[pos] == '{':
-                      depth += 1
-                  elif text[pos] == '}':
-                      depth -= 1
-                      if depth == 0:
-                          end = pos + 1
-                          break
-              blocks.append((k, end))
-              i = end
-          for start, end in reversed(blocks):
-              chunk = text[start:end].replace('ensure(', 'ensure_v(')
-              text = text[:start] + chunk + text[end:]
-          open(path, 'w', encoding='utf-8').write(text)
-          print(f'patched jitsibin.cpp: ensure->ensure_v in {len(blocks)} void bodies')
+          from pathlib import Path
+
+          def patch_void_bodies(path: Path) -> int:
+              text = path.read_text(encoding='utf-8')
+              blocks = []
+              i = 0
+              while True:
+                  j = text.find('-> void', i)
+                  if j == -1:
+                      break
+                  k = text.find('{', j)
+                  if k == -1:
+                      break
+                  depth = 0
+                  end = k
+                  for pos in range(k, len(text)):
+                      if text[pos] == '{':
+                          depth += 1
+                      elif text[pos] == '}':
+                          depth -= 1
+                          if depth == 0:
+                              end = pos + 1
+                              break
+                  blocks.append((k, end))
+                  i = end
+              for start, end in reversed(blocks):
+                  chunk = text[start:end]
+                  chunk = chunk.replace('ensure(', 'ensure_v(').replace('unwrap(', 'unwrap_v(')
+                  text = text[:start] + chunk + text[end:]
+              if blocks:
+                  path.write_text(text, encoding='utf-8')
+              return len(blocks)
+
+          src_root = Path('..')
+          total = 0
+          for cpp in src_root.rglob('*.cpp'):
+              n = patch_void_bodies(cpp)
+              if n:
+                  print(f'patched {cpp}: {n} void bodies')
+                  total += n
+          print(f'void-body patch complete: {total} bodies across {src_root}')
           PY
 
       - name: Configure + build gstjitsimeet (MSVC)
