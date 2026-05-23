@@ -180,6 +180,10 @@ jobs:
           CC: cl
           CXX: cl
         run: |
+          # meson/MSVC: MSYS2's /usr/bin/link.exe (GNU coreutils 'link') shadows MSVC's
+          # linker on PATH and meson probes PATH by name. Remove the coreutils link so
+          # the MSVC link.exe is found. (coreutils 'link' is unused by this build.)
+          rm -f /usr/bin/link.exe /usr/bin/link
           export QT_PATH="$(cygpath -u '${{ github.workspace }}/qt6-static-build/qt6-static-build')"
           git config --global core.symlinks true
           chmod +x build_gstreamer.sh
