@@ -400,6 +400,33 @@ jobs:
           open(path, 'w', encoding='utf-8').write(text)
           print('patched sha.cpp: drop redundant unwrap + manual nullopt errors')
 
+          MSVC_OPT_MACROS = '''
+          // MSVC optional bail overrides — trailing-return methods in StringReader TUs.
+          #undef bail
+          #undef ensure
+          #undef unwrap
+          #undef unwrap_mut
+          #define bail(...) do { CUTIL_MACROS_PRINT_FUNC("assertion failed" __VA_OPT__(": ") __VA_ARGS__); return std::nullopt; } while(0)
+          #define ensure(cond, ...) do { if(!(cond)) { CUTIL_MACROS_PRINT_FUNC("assertion failed" __VA_OPT__(": ") __VA_ARGS__); return std::nullopt; } } while(0)
+          #define unwrap(var, opt, ...) const auto var##_o = (opt); if(!(var##_o)) { return std::nullopt; } const auto& var = *var##_o;
+          #define unwrap_mut(var, opt, ...) const auto var##_o = (opt); if(!(var##_o)) { return std::nullopt; } auto& var = *var##_o;
+
+          '''
+
+          def inject_msvc_optional_macros(path: str) -> None:
+              text = open(path, encoding='utf-8').read()
+              needle = '#include "macros/unwrap.hpp"\n'
+              if needle not in text:
+                  raise SystemExit(f'missing unwrap include in {path}')
+              if 'MSVC optional bail overrides' in text:
+                  print(f'skip {path}: MSVC optional macros already injected')
+                  return
+              open(path, 'w', encoding='utf-8').write(text.replace(needle, needle + MSVC_OPT_MACROS))
+              print(f'patched {path}: injected MSVC optional bail macros')
+
+          for opt_cpp in ('xml/parser.cpp', 'json/lexer.cpp'):
+              inject_msvc_optional_macros(opt_cpp)
+
           import re
           from pathlib import Path
 

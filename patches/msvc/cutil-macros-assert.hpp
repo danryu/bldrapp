@@ -32,6 +32,9 @@ inline constexpr bool msft_is_optional_v = msft_is_optional<std::remove_cvref_t<
 
 template <comptime::String sig>
 constexpr auto msft_sig_returns_optional() -> bool {
+    if constexpr(msft_sig_is_void_fn<sig>()) {
+        return false;
+    }
     if constexpr(comptime::starts_with<sig, "class std::optional">) {
         return true;
     }
@@ -45,6 +48,9 @@ constexpr auto msft_sig_returns_optional() -> bool {
         return true;
     }
     if constexpr(comptime::find<sig, "-> std::optional"> != std::string_view::npos) {
+        return true;
+    }
+    if constexpr(comptime::find<sig, "std::optional<"> != std::string_view::npos) {
         return true;
     }
     return false;
