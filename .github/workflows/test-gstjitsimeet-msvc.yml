@@ -30,11 +30,24 @@ jobs:
   probe:
     runs-on: windows-2022
     timeout-minutes: 60
+    # Reuse vcpkg's compiled openssl + libwebsockets across runs instead of rebuilding
+    # them from source every time. First run populates the GitHub Actions cache; later
+    # runs restore the binaries. Cache write failures are non-fatal (vcpkg warns only).
+    env:
+      VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
     steps:
       - name: Setup MSVC (x64) environment
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
+
+      # x-gha needs these two endpoints exposed as env vars to talk to the cache backend.
+      - name: Expose GitHub Actions cache to vcpkg
+        uses: actions/github-script@v7
+        with:
+          script: |
+            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -122,32 +135,28 @@ jobs:
           fi
           echo "Submodule tree:"; ls -la submodules/
 
-      # Git Bash symlinks are invisible to native pwsh/ninja; use directory junctions.
-      - name: Materialize source tree links (Windows junctions)
-        shell: pwsh
+      # The source tree is stitched together from git-tracked symlinks (src/jitsi,
+      # src/gstutil, and libjitsimeet's nested src/crypto|json|macros|util|ws|xml).
+      # git-for-windows checks these out BEFORE their submodule targets exist, so it
+      # can't tag them as directory links and creates *file-type* symlinks that point
+      # at directories. PowerShell/Test-Path can traverse children through such links
+      # (so meson configure succeeds), but ninja's Win32 stat cannot -> the depscan
+      # step reports "'../src/jitsi/async-websocket.cpp' ... missing". Dereference-copy
+      # the whole tree into real directories so every build tool sees plain files.
+      # (Targets all exist by now: submod clone ran above.)
+      - name: Materialize source tree (deref symlinks into real files)
+        shell: bash
         run: |
-          $ErrorActionPreference = 'Stop'
+          set -e
           cd gstjitsimeet
-          function Ensure-Junction([string]$Link, [string]$Target, [string]$Marker) {
-            if (Test-Path (Join-Path $Link $Marker)) { return }
-            if (Test-Path $Link) { Remove-Item -LiteralPath $Link -Recurse -Force }
-            $targetPath = (Resolve-Path $Target).Path
-            New-Item -ItemType Junction -Path $Link -Target $targetPath | Out-Null
-          }
-          Ensure-Junction src/jitsi submodules/libjitsimeet/src async-websocket.cpp
-          Ensure-Junction src/gstutil submodules/gstreamer-utils/src meson.build
-          Push-Location submodules/libjitsimeet/src
-          Ensure-Junction crypto ../submodules/crypto-utils/src meson.build
-          Ensure-Junction json ../submodules/tinyjson/src meson.build
-          Ensure-Junction macros ../submodules/cutil-macros/src macros.hpp
-          Ensure-Junction util ../submodules/cutil/src meson.build
-          Ensure-Junction ws ../submodules/websocket-cpp/src meson.build
-          Ensure-Junction xml ../submodules/tinyxml/src meson.build
-          Pop-Location
-          if (-not (Test-Path src/jitsi/async-websocket.cpp)) {
-            throw "native access: src/jitsi/async-websocket.cpp missing after junction setup"
-          }
-          Write-Host "native tree OK:" (Get-Item src/jitsi/async-websocket.cpp).FullName
+          rm -rf src/jitsi src/gstutil
+          cp -RL submodules/libjitsimeet/src src/jitsi
+          cp -RL submodules/gstreamer-utils/src src/gstutil
+          # Fail loudly here rather than deep in ninja if a link didn't resolve.
+          for f in async-websocket.cpp crypto/base64.cpp ws/meson.build xml/meson.build json/meson.build; do
+            test -f "src/jitsi/$f" || { echo "MISSING after deref-copy: src/jitsi/$f"; exit 1; }
+          done
+          echo "real source tree OK:"; ls -la src/jitsi | head
 
       # coop pins cpp_std=c++23 and GCC-only warning flags; MSVC needs c++latest
       # and cl-compatible options (same class of fix as gstjitsimeet below).
