@@ -22,7 +22,7 @@
 // returns automatically detected error value
 //
 // Non-void error paths use msft_bail_empty (converts to nullopt/nullptr/false/0).
-// Void functions are detected via __FUNCSIG__ prefix/trailing markers only.
+// Void functions are detected via __FUNCSIG__ markers (avoid matching "-> void*").
 
 struct msft_bail_empty {
     template <class T>
@@ -30,6 +30,23 @@ struct msft_bail_empty {
         return {};
     }
 };
+
+template <comptime::String sig>
+constexpr auto msft_sig_has_trailing_void_return() -> bool {
+    if constexpr(comptime::ends_with<sig, "-> void">) {
+        return true;
+    }
+    if constexpr(comptime::find<sig, "-> void "> != std::string_view::npos) {
+        return true;
+    }
+    if constexpr(comptime::find<sig, "-> void__ptr64"> != std::string_view::npos) {
+        return true;
+    }
+    if constexpr(comptime::find<sig, "->void"> != std::string_view::npos) {
+        return true;
+    }
+    return false;
+}
 
 template <comptime::String sig>
 constexpr auto msft_sig_is_void_fn() -> bool {
@@ -42,22 +59,27 @@ constexpr auto msft_sig_is_void_fn() -> bool {
     if constexpr(comptime::starts_with<sig, "void __fastcall ">) {
         return true;
     }
-    if constexpr(comptime::find<sig, "-> void"> != std::string_view::npos) {
-        return true;
-    }
-    if constexpr(comptime::find<sig, "->void"> != std::string_view::npos) {
-        return true;
-    }
-    return false;
+    return msft_sig_has_trailing_void_return<sig>();
 }
+
+template <bool IsVoid>
+struct msft_bail_dispatch;
+
+template <>
+struct msft_bail_dispatch<true> {
+    static void go() {}
+};
+
+template <>
+struct msft_bail_dispatch<false> {
+    static msft_bail_empty go() {
+        return {};
+    }
+};
 
 #define bail(...)                                                                                \
     CUTIL_MACROS_PRINT_FUNC(__VA_ARGS__);                                                          \
-    if constexpr(msft_sig_is_void_fn<CUTIL_COMPSTR(__FUNCSIG__)>()) {                              \
-        return;                                                                                    \
-    } else {                                                                                       \
-        return msft_bail_empty{};                                                                    \
-    }
+    return msft_bail_dispatch<msft_sig_is_void_fn<CUTIL_COMPSTR(__FUNCSIG__)>()>::go()
 
 #define ensure(cond, ...)                                      \
     if(!(cond)) {                                              \
