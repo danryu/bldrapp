@@ -1,4 +1,4 @@
-# Build gstjitsimeet with MSVC on Windows from danryu fork msvc branches.
+# Build gstjitsimeet with MSVC on Windows from danryu fork msvc-tidy branches.
 # Patches live in fork repos; this workflow only materializes symlinks, builds coop,
 # and compiles the plugin. Override inputs to probe upstream or other refs.
 name: TEST - gstjitsimeet on MSVC
@@ -13,7 +13,7 @@ on:
       gstjitsimeet_ref:
         description: 'gstjitsimeet branch/ref (blank = repo default)'
         required: false
-        default: 'msvc'
+        default: 'msvc-tidy'
       submod_repo:
         description: 'submod repo (owner/name)'
         required: false
@@ -25,7 +25,7 @@ on:
       coop_ref:
         description: 'coop branch/ref (blank = repo default)'
         required: false
-        default: 'msvc'
+        default: 'msvc-tidy'
 
 jobs:
   probe:
@@ -208,8 +208,10 @@ jobs:
             test -f "src/jitsi/$f" || { echo "MISSING after deref-copy: src/jitsi/$f"; exit 1; }
           done
           echo "real source tree OK:"; ls -la src/jitsi | head
-          # Nested serde symlinks (xml/xml, json/json, util) duplicate headers after
-          # cp -RL; format.hpp includes already point at the top-level jitsi tree.
+          # serde's format.hpp uses upstream include names (json/json.hpp,
+          # util/charconv.hpp, xml/xml.hpp). Remove serde's own nested copies of those
+          # deps so the includes fall through to the top-level jitsi tree (the patched
+          # tinyjson/tinyxml/cutil) via meson's include_directories('src/jitsi').
           rm -rf src/jitsi/jingle/serde/xml/xml src/jitsi/jingle/serde/xml/util
           rm -rf src/jitsi/jingle/serde/json/json
           # ws/ also materializes nested macros/ + util/ copies; Meson adds the source
