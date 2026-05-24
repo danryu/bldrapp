@@ -3,6 +3,15 @@ name: 01 - Build GST static
 
 on:
   workflow_dispatch:
+    inputs:
+      only_platform:
+        description: 'Limit to one platform (macos / windows). Blank = all.'
+        required: false
+        default: ''
+      gstj_fork_branch:
+        description: 'danryu fork branch for gstjitsimeet, submod, and coop'
+        required: false
+        default: 'kdev3'
 
 permissions:
   contents: write
@@ -10,6 +19,8 @@ permissions:
 jobs:
   build:
     name: GStreamer static (${{ matrix.artifact_suffix }})
+    # Allow debug runs to target a single platform and avoid rebuilding the others.
+    if: ${{ github.event.inputs.only_platform == '' || github.event.inputs.only_platform == matrix.platform }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 300
     defaults:
@@ -60,7 +71,7 @@ jobs:
             gst-build/libwebsockets-install
             gst-build/x264-install
             ${{ github.workspace }}/../gstjitsimeet/deps/coop-install
-          key: gstreamer-bundle-v2-${{ matrix.artifact_suffix }}-${{ hashFiles('gst-build/build_gstreamer.sh') }}
+          key: gstreamer-bundle-v3-${{ matrix.artifact_suffix }}-${{ github.event.inputs.gstj_fork_branch || 'kdev3' }}-${{ hashFiles('gst-build/build_gstreamer.sh') }}
 
       - name: Cache status
         shell: bash
@@ -109,6 +120,7 @@ jobs:
           QT_PATH: ${{ github.workspace }}/qt6-static-build/qt6-static-build
           INSTALL_DEPS: "false"
           MACOSX_DEPLOYMENT_TARGET: "13.3"
+          KORMIX_GSTJ_BRANCH: ${{ github.event.inputs.gstj_fork_branch || 'kdev3' }}
         run: |
           chmod +x build_gstreamer.sh
           ./build_gstreamer.sh
@@ -176,6 +188,7 @@ jobs:
         env:
           INSTALL_DEPS: "false"
           MSYS: winsymlinks:nativestrict
+          KORMIX_GSTJ_BRANCH: ${{ github.event.inputs.gstj_fork_branch || 'kdev3' }}
           # Force MSVC for meson/cmake even though mingw gcc is present in UCRT64.
           CC: cl
           CXX: cl
