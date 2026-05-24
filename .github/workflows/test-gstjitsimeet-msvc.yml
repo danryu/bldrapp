@@ -218,7 +218,14 @@ jobs:
           # directory to the include path so ws/*.cpp picks those up instead of the
           # patched top-level src/jitsi/{macros,util} tree (MDd/debug-CRT mismatch).
           rm -rf src/jitsi/ws/macros src/jitsi/ws/util
-          echo "removed nested serde + ws symlink copies"
+          # tinyxml/tinyjson use the external string-reader dep, which brings its own
+          # nested (unpatched) macros/ + util/ copies. cp -RL materializes them as real
+          # dirs that shadow the top-level patched cutil-macros (the symlink-based
+          # production tree leaves them unresolved -> top-level). Remove so string-reader
+          # resolves macros/unwrap.hpp to the top-level tree via include_directories.
+          rm -rf src/jitsi/xml/string-reader/macros src/jitsi/xml/string-reader/util
+          rm -rf src/jitsi/json/string-reader/macros src/jitsi/json/string-reader/util
+          echo "removed nested serde + ws + string-reader symlink copies"
 
       - name: Build coop (MSVC)
         shell: pwsh
